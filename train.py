@@ -410,7 +410,7 @@ if __name__ == '__main__':
                         default=4e-4, help='momentum constant')
     parser.add_argument('--start_epoch', type=int, default=-1,
                         help='start epoch')
-    parser.add_argument('--n_epoch', type=int, default=100,
+    parser.add_argument('--n_epoch', type=int, default=50,
                         help='number of training epochs')
     parser.add_argument('--batch-size', type=int, default=16,
                         help='training batch size')
@@ -519,31 +519,6 @@ if __name__ == '__main__':
         if not osp.isdir(results_dir):
             os.mkdir(results_dir)    
 
-        # Validation
-        valid_motionlist = np.array([])
-        valid_loss_pose, motionlist = \
-        validate_epoch(vonet, valid_motionlist, val_dataloader, device, epoch=epoch, save_path=os.path.join(save_path, 'test'), div_flow=args.div_flow,
-                           apply_mask=False) #수정)
-        #test_writer.add_scalar('train loss flow', valid_loss_flow, epoch)
-        test_writer.add_scalar('train loss pose', valid_loss_pose, epoch)
-        #print(colored('==> ', 'blue') + 'Val average flow loss :', valid_loss_flow)
-        print(colored('==> ', 'blue') + 'Val average pose loss:', valid_loss_pose)
-
-        print(colored('==> ', 'green') + 'finished epoch :', epoch + 1)
-
-        is_best = valid_loss_pose < best_val
-        best_val = min(valid_loss_pose, best_val)
-
-        save_checkpoint({'epoch': epoch + 1,
-                         'state_dict': vonet.module.state_dict(),
-                         'optimizer': optimizer.state_dict(),
-                         'scheduler': scheduler.state_dict(),
-                         'best_loss': best_val},
-                        is_best, save_path, 'epoch_{}.pth'.format(epoch + 1))
-        
-
-
-        
         train_loss_flow, train_loss_pose, train_last_batch_ate = train_epoch(vonet, 
                                  optimizer,
                                  train_dataloader,
@@ -559,6 +534,28 @@ if __name__ == '__main__':
         train_writer.add_scalar('learning_rate', scheduler.get_lr()[0], epoch)
         print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
         print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
+
+        # Validation
+        valid_motionlist = np.array([])
+        valid_loss_pose, motionlist = \
+        validate_epoch(vonet, valid_motionlist, val_dataloader, device, epoch=epoch, save_path=os.path.join(save_path, 'test'), div_flow=args.div_flow,
+                           apply_mask=False) #수정)
+        #test_writer.add_scalar('train loss flow', valid_loss_flow, epoch)
+        test_writer.add_scalar('train loss pose', valid_loss_pose, epoch)
+        #print(colored('==> ', 'blue') + 'Val average flow loss :', valid_loss_flow)
+        print(colored('==> ', 'blue') + 'Val average pose loss:', valid_loss_pose)
+
+        print(colored('==> ', 'blue') + 'finished epoch :', epoch)
+
+        is_best = valid_loss_pose < best_val
+        best_val = min(valid_loss_pose, best_val)
+
+        save_checkpoint({'epoch': epoch,
+                         'state_dict': vonet.module.state_dict(),
+                         'optimizer': optimizer.state_dict(),
+                         'scheduler': scheduler.state_dict(),
+                         'best_loss': best_val},
+                        is_best, save_path, 'epoch_{}.pth'.format(epoch))
 
 
 
