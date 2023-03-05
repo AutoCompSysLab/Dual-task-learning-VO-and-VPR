@@ -30,7 +30,9 @@ def get_args():
                         help='kitti test (default: False)')
     parser.add_argument('--kitti-intrinsics-file',  default='',
                         help='kitti intrinsics file calib.txt (default: )')
-    parser.add_argument('--test-dir', default='',
+    parser.add_argument('--ref-test-dir', default='',
+                        help='test trajectory folder where the RGB images are (default: "")')
+    parser.add_argument('--query-test-dir', default='',
                         help='test trajectory folder where the RGB images are (default: "")')
     parser.add_argument('--pose-file', default='',
                         help='test trajectory gt pose file, used for scale calculation, and visualization (default: "")')
@@ -61,7 +63,7 @@ if __name__ == '__main__':
 
     transform = Compose([CropCenter((args.image_height, args.image_width)), DownscaleFlow(), ToTensor()])
 
-    testDataset = TrajFolderDataset(args.test_dir,  posefile = args.pose_file, transform=transform, 
+    testDataset = TrajFolderDataset(args.ref_test_dir,  args.query_test_dir, posefile = args.pose_file, transform=transform, 
                                         focalx=focalx, focaly=focaly, centerx=centerx, centery=centery)
     testDataloader = DataLoader(testDataset, batch_size=args.batch_size, 
                                         shuffle=False, num_workers=args.worker_num)

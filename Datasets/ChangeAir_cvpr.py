@@ -7,7 +7,7 @@ from .utils_tartanvo import make_intrinsics_layer
 import os.path
 from .listdataset import TestListDataset
 
-def Changeair_cvpr_Dataset(root, source_image_transform=None, target_image_transform=None, flow_transform=None,
+def Changeair_cvpr_Dataset(root, data_name, source_image_transform=None, target_image_transform=None, flow_transform=None,
                    co_transform=None, valid_transform = None, train_transform=None,
                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0):
     '''
@@ -100,7 +100,8 @@ def Changeair_cvpr_Dataset(root, source_image_transform=None, target_image_trans
         '''
         for i in range(len(image_list_ref)):
             #if dataset_name == 'abandonedfactory' or dataset_name == 'hospital':
-            test_list.append([[image_list_ref[i], image_list_query[i]], motion_list[i]])
+            if dataset_name == data_name:
+                test_list.append([[image_list_ref[i], image_list_query[i]], motion_list[i]])
 
 
     print('Loading test dataset at {}'.format(root))

@@ -66,7 +66,7 @@ def Changeair_Dataset(root, source_image_transform=None, target_image_transform=
             for subdir in subdir_list:
                 subpath = os.path.join(dataset_name, dataset_name, data_type_name, subdir)
                 subpath_image_ref = os.path.join(path, subdir, 'ref', 'image')
-                subpath_image_query = os.path.join(path, subdir, 'ref', 'image')
+                subpath_image_query = os.path.join(path, subdir, 'query', 'image')
                 #subpath_flow = os.path.join(path, subdir, 'flow')
                 #posefile = os.path.join(path, subdir, 'pose_left.txt')
                 subpath_flow = os.path.join(pose_root, dataset_name, dataset_name, data_type_name, subdir, 'flow')

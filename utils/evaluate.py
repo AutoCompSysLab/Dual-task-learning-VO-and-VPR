@@ -174,7 +174,7 @@ def calculate_epe_and_pck_per_dataset(test_dataloader, network, device, threshol
         output['kitti2015-F1'] = F1 / float(n_registered_pxs)
     return output
 
-def test(flownet, posenet, motionlist, 
+def test(vonet, motionlist, 
                    test_loader, 
                    device,
                    save_path,
@@ -204,28 +204,33 @@ def test(flownet, posenet, motionlist,
 
     """
 
-    flownet.eval()
-    posenet.eval()
+    vonet.eval()
 
     with torch.no_grad():
         pbar = tqdm(enumerate(test_loader), total=len(test_loader))
 
         for i, mini_batch in pbar:
-            source_image, target_image, source_image_256, target_image_256 = pre_process_data(
+            source_image, target_image = pre_process_data(
                 mini_batch['source_image'],
                 mini_batch['target_image'],
                 device=device)
-            
+            '''
             #TartanAir
             output_net_256, output_net_original = flownet(source_image, target_image, source_image_256, target_image_256)
             
             #pose net
             flow_scale = 20.0
+            '''
+            intrinsic = mini_batch['intrinsic'].float().to(device)
+            #flow_output, pose_output = vonet([target_image, source_image, intrinsic])
+            flow_output, pose_output = vonet([source_image, target_image, intrinsic])
             
             #with flow_output 
+            '''
             flow_input = output_net_original[1].clone()/flow_scale #20은 tartanvo값임
             motion = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))
-            motionnp = motion.cpu().numpy()
+            '''
+            motionnp = pose_output.cpu().numpy()
             pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32) 
             motionnp = motionnp * pose_std
 
@@ -273,17 +278,4 @@ def pre_process_data(source_img, target_img, device):
     source_img_copy.sub_(mean[:, None, None]).div_(std[:, None, None])
     target_img_copy.sub_(mean[:, None, None]).div_(std[:, None, None])
 
-    # resolution 256x256
-    source_img_256 = torch.nn.functional.interpolate(input=source_img.float().to(device),
-                                                      size=(256, 256),
-                                                      mode='area').byte()
-    target_img_256 = torch.nn.functional.interpolate(input=target_img.float().to(device),
-                                                      size=(256, 256),
-                                                      mode='area').byte()
-
-    source_img_256 = source_img_256.float().div(255.0)
-    target_img_256 = target_img_256.float().div(255.0)
-    source_img_256.sub_(mean[:, None, None]).div_(std[:, None, None])
-    target_img_256.sub_(mean[:, None, None]).div_(std[:, None, None])
-
-    return source_img_copy, target_img_copy, source_img_256, target_img_256
+    return source_img_copy, target_img_copy

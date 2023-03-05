@@ -47,6 +47,7 @@ class VONet(nn.Module):
         # import ipdb;ipdb.set_trace() 
         flow2, flow3, flow4, flow5, flow6 = self.flowNet(x[0:2])
         flow = [flow2, flow3, flow4, flow5, flow6]
+        #import pdb; pdb.set_trace()
         #flow = flow[0]
         flow_input = torch.cat( ( flow2, x[2] ), dim=1 )        
         pose = self.flowPoseNet( flow_input )

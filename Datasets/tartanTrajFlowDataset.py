@@ -8,13 +8,17 @@ from .utils_tartanvo import make_intrinsics_layer
 class TrajFolderDataset(Dataset):
     """scene flow synthetic dataset. """
 
-    def __init__(self, imgfolder , posefile = None, transform = None, 
+    def __init__(self, ref_imgfolder, query_imgfolder, posefile = None, transform = None, 
                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0):
         
-        files = listdir(imgfolder)
-        self.rgbfiles = [(imgfolder +'/'+ ff) for ff in files if (ff.endswith('.png') or ff.endswith('.jpg'))]
-        self.rgbfiles.sort()
-        self.imgfolder = imgfolder
+        ref_files = listdir(ref_imgfolder)
+        query_files = listdir(query_imagefolder)
+        self.ref_rgbfiles = [(imgfolder +'/'+ ff) for ff in files if (ff.endswith('.png') or ff.endswith('.jpg'))]
+        self.ref_rgbfiles.sort()
+        self.query_rgbfiles = [(imgfolder +'/'+ ff) for ff in files if (ff.endswith('.png') or ff.endswith('.jpg'))]
+        self.query_rgbfiles.sort()
+        self.ref_imgfolder = ref_imgfolder
+        self.query_imgfolder = query_imgfolder
 
         print('Find {} image files in {}'.format(len(self.rgbfiles), imgfolder))
 
@@ -29,7 +33,7 @@ class TrajFolderDataset(Dataset):
         else:
             self.motions = None
 
-        self.N = len(self.rgbfiles) - 1
+        self.N = len(self.ref_rgbfiles)
 
         # self.N = len(self.lines)
         self.transform = transform
@@ -42,8 +46,9 @@ class TrajFolderDataset(Dataset):
         return self.N
 
     def __getitem__(self, idx):
-        imgfile1 = self.rgbfiles[idx].strip()
-        imgfile2 = self.rgbfiles[idx+1].strip()
+        imgfile1 = self.ref_rgbfiles[idx].strip()
+        imgfile2 = self.query_rgbfiles[idx].strip()
+        #import pdb; pdb.set_trace()
         img1 = cv2.imread(imgfile1)
         img2 = cv2.imread(imgfile2)
 

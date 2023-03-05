@@ -7,7 +7,11 @@ import shutil
 def load_model(model, modelname):
     preTrainDict = torch.load(modelname)
     model_dict = model.state_dict()
-    preTrainDictTemp = {k.replace('module', 'vonet'):v for k,v in preTrainDict.items() if k not in model_dict}
+    #import pdb; pdb.set_trace()
+    if modelname.endswith('pkl'):
+            preTrainDictTemp = {k.replace('module', 'vonet'):v for k,v in preTrainDict.items() if k not in model_dict}
+    else:
+        preTrainDictTemp = {k:v for k,v in preTrainDict['state_dict'].items() if k in model_dict}
 
     if( 0 == len(preTrainDictTemp) ):
         print("Does not find any module to load. Try DataParallel version.")

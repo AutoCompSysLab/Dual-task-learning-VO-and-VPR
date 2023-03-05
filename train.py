@@ -19,6 +19,14 @@ from utils.image_transforms import ArrayToTensor, ToTensor, Compose, CropCenter,
 from utils_training.utils_CNN import load_checkpoint, save_checkpoint, boolean_string
 from utils_training.utils_load_model import load_model
 from tensorboardX import SummaryWriter
+from Datasets.transformation import ses2poses_quat
+from evaluator.tartanair_evaluator import TartanAirEvaluator
+from Datasets.utils import ToTensor, Compose, CropCenter, dataset_intrinsics, DownscaleFlow, plot_traj, plot_traj_3d, visflow
+from evaluator.evaluator_base import quats2SEs
+from evaluator.trajectory_transform import trajectory_transform, rescale
+from evaluator.transformation import pos_quats2SE_matrices, SE2pos_quat
+from Datasets.transformation import ses2poses_quat
+from utils_training.optimize_VONet_with_adaptive_resolution import ATEEvaluator, transform_trajs
 import random
 import os
 from os import path as osp
@@ -405,6 +413,8 @@ if __name__ == '__main__':
                        help='path to pre-trained posenet model')
     parser.add_argument('--pretrained_model', dest='pretrained_model', default=None,
                        help='path to pre-trained vo model')
+    parser.add_argument('--pose-file', default='',
+                        help='test trajectory gt pose file, used for scale calculation, and visualization (default: "")')
     # Optimization parameters
     parser.add_argument('--momentum', type=float,
                         default=4e-4, help='momentum constant')
@@ -412,9 +422,9 @@ if __name__ == '__main__':
                         help='start epoch')
     parser.add_argument('--n_epoch', type=int, default=50,
                         help='number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=16,
+    parser.add_argument('--batch-size', type=int, default=64,
                         help='training batch size')
-    parser.add_argument('--n_threads', type=int, default=8,
+    parser.add_argument('--n_threads', type=int, default=32,
                         help='number of parallel threads for dataloaders')
     parser.add_argument('--weight-decay', type=float, default=4e-4,
                         help='weight decay constant')
@@ -465,7 +475,7 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, 
                                         shuffle=True, num_workers=args.worker_num)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, 
-                                    shuffle=True, num_workers=args.worker_num)
+                                    shuffle=False, num_workers=args.worker_num)
     '''
     self.vonet = PretrainedVONet(intrinsic=self.args.intrinsic_layer, 
                         flowNormFactor=1.0, down_scale=args.downscale_flow, 
@@ -511,13 +521,48 @@ if __name__ == '__main__':
     vonet = nn.DataParallel(vonet)
     vonet = vonet.to(device)
     train_started = time.time()
-
+    datastr = 'tartanair'
     for epoch in range(start_epoch, args.n_epoch):
         scheduler.step()
         print('starting epoch {}:  learning rate is {}'.format(epoch, scheduler.get_last_lr()[0]))
         results_dir = os.path.join(save_path, 'result')
         if not osp.isdir(results_dir):
             os.mkdir(results_dir)    
+
+        # Validation
+        valid_motionlist = np.array([])
+        valid_motionlist_gt = np.array([])
+        valid_loss_pose, val_last_batch_ate, motionlist, motionlist_gt = \
+        validate_epoch(vonet, valid_motionlist, valid_motionlist_gt, val_dataloader, device, epoch=epoch, save_path=os.path.join(save_path, 'test'), div_flow=args.div_flow,
+                           apply_mask=False, results_dir=results_dir) #수정)
+        #test_writer.add_scalar('train loss flow', valid_loss_flow, epoch)
+        test_writer.add_scalar('test loss pose', valid_loss_pose, epoch)
+        #test_writer.add_scalar('test last batch ate', val_last_batch_ate, epoch)        
+        #print(colored('==> ', 'blue') + 'Val average flow loss :', valid_loss_flow)
+        print(colored('==> ', 'blue') + 'Val average pose loss:', valid_loss_pose)
+        print(colored('==> ', 'blue') + 'Val last batch ate:', val_last_batch_ate)
+
+        print(colored('==> ', 'blue') + 'finished epoch :', epoch)
+        
+        poselist = ses2poses_quat(np.array(motionlist))
+        poselist_gt = ses2poses_quat(np.array(motionlist_gt))
+
+        gt_traj_trans, est_traj_trans, s = transform_trajs(poselist_gt, poselist, True)
+        gt_SEs, est_SEs = quats2SEs(gt_traj_trans, est_traj_trans)
+        ate_eval = ATEEvaluator()
+        ate_score, gt_ate_aligned, est_ate_aligned = ate_eval.evaluate(poselist_gt, poselist, True)
+        #ate_scorelist.append(ate_score)
+        plot_traj_3d(gt_ate_aligned, est_ate_aligned, vis=False, savefigname=results_dir+'/valid_traj_epoch_{}'.format(str(epoch) + '.png'), title='ATE %.4f' %(ate_score))
+        print('ate:', ate_score)
+        is_best = valid_loss_pose < best_val
+        best_val = min(valid_loss_pose, best_val)
+
+        save_checkpoint({'epoch': epoch,
+                         'state_dict': vonet.module.state_dict(),
+                         'optimizer': optimizer.state_dict(),
+                         'scheduler': scheduler.state_dict(),
+                         'best_loss': best_val},
+                        is_best, save_path, 'epoch_{}.pth'.format(epoch))
 
         train_loss_flow, train_loss_pose, train_last_batch_ate = train_epoch(vonet, 
                                  optimizer,
@@ -534,28 +579,7 @@ if __name__ == '__main__':
         train_writer.add_scalar('learning_rate', scheduler.get_lr()[0], epoch)
         print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
         print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
-
-        # Validation
-        valid_motionlist = np.array([])
-        valid_loss_pose, motionlist = \
-        validate_epoch(vonet, valid_motionlist, val_dataloader, device, epoch=epoch, save_path=os.path.join(save_path, 'test'), div_flow=args.div_flow,
-                           apply_mask=False) #수정)
-        #test_writer.add_scalar('train loss flow', valid_loss_flow, epoch)
-        test_writer.add_scalar('train loss pose', valid_loss_pose, epoch)
-        #print(colored('==> ', 'blue') + 'Val average flow loss :', valid_loss_flow)
-        print(colored('==> ', 'blue') + 'Val average pose loss:', valid_loss_pose)
-
-        print(colored('==> ', 'blue') + 'finished epoch :', epoch)
-
-        is_best = valid_loss_pose < best_val
-        best_val = min(valid_loss_pose, best_val)
-
-        save_checkpoint({'epoch': epoch,
-                         'state_dict': vonet.module.state_dict(),
-                         'optimizer': optimizer.state_dict(),
-                         'scheduler': scheduler.state_dict(),
-                         'best_loss': best_val},
-                        is_best, save_path, 'epoch_{}.pth'.format(epoch))
+        print(colored('==> ', 'green') + 'Train last batch ate:', train_last_batch_ate)
 
 
 

@@ -8,7 +8,7 @@ from evaluator.evaluator_base import quats2SEs
 from evaluator.trajectory_transform import trajectory_transform, rescale
 from evaluator.transformation import pos_quats2SE_matrices, SE2pos_quat
 from Datasets.transformation import ses2poses_quat
-from Datasets.utils import plot_traj_3d, visflow
+from Datasets.utils import plot_traj_3d, plot_traj, visflow
 import torch.nn as nn
 import pdb
 
@@ -21,7 +21,7 @@ def transform_trajs(gt_traj, est_traj, cal_scale):
         s = 1.0
     return gt_traj, est_traj, s
 
-from evaluator.evaluate_ate_scale import align, plot_traj
+from evaluator.evaluate_ate_scale import align
 
 class ATEEvaluator(object):
     def __init__(self):
@@ -266,19 +266,24 @@ def train_epoch(net,
         intrinsic, flow, mask = None, None, None
         intrinsic = mini_batch['intrinsic'].float().to(device)
         flow = mini_batch['flow'].float().to(device)
+        #import pdb; pdb.set_trace()
         flow_output, pose_output = net([source_image, target_image, intrinsic])
+        #flow_output, pose_output = net([target_image, source_image, intrinsic])
         pose_output_np = pose_output.data.cpu().detach().numpy().squeeze()
-        
         # calculate flow loss
         if flow is not None:
-            flowloss = net.module.vonet.get_flow_loss(flow_output, flow, criterion, mask=mask, training = True, small_scale=False) / 0.05
+            flowloss = net.module.vonet.get_flow_loss(flow_output, flow, criterion, mask=mask, training = True, small_scale=True) / 0.05
         else:
             flowloss = torch.FloatTensor([0])
     
-        motion = mini_batch['motion'].float().to(device)
-        pose_std = torch.tensor([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=torch.float32).to(device)
+        motion = mini_batch['motion'].float()
+        pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)
         motion_gt = motion / pose_std
-        poseloss, trans_loss, rot_loss = COMPASS_linear_norm_trans_loss(pose_output, motion)
+        trans = motion_gt[:,:3]
+        trans_norm = np.linalg.norm(trans, axis=1)
+        motion_gt[:,:3] = motion_gt[:,:3]/trans_norm.reshape(-1,1)
+        motion_gt = motion_gt.to(device)
+        poseloss, trans_loss, rot_loss = COMPASS_linear_norm_trans_loss(pose_output, motion_gt)
 
         Loss = flowloss + poseloss
         Loss.backward()
@@ -318,6 +323,7 @@ def train_epoch(net,
 
 def validate_epoch(net,
                    motionlist,
+                   motionlist_gt,
                    val_loader,
                    device,
                    epoch,
@@ -326,7 +332,8 @@ def validate_epoch(net,
                    loss_grid_weights=None,
                    apply_mask=False,
                    sparse=False,
-                   robust_L1_loss=False):
+                   robust_L1_loss=False,
+                   results_dir=False):
     """
     Validation epoch script
     Args:
@@ -361,7 +368,7 @@ def validate_epoch(net,
     running_total_loss_pose = 0
 
     criterion = nn.L1Loss()
-
+    ate_scorelist=[]
     with torch.no_grad():
         pbar = tqdm(enumerate(val_loader), total=len(val_loader))
         #EPE_array = torch.zeros([len(loss_grid_weights), len(val_loader)], dtype=torch.float32, device=device)
@@ -372,10 +379,13 @@ def validate_epoch(net,
                 device=device)
             intrinsic, flow, mask = None, None, None
             intrinsic = mini_batch['intrinsic'].float().to(device)
+            #import pdb; pdb.set_trace()
             #flow = mini_batch['flow'].float().to(device)
             flow_output, pose_output = net([source_image, target_image, intrinsic])
-            motionnp = pose_output.cpu().numpy()
-            pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)
+            #flow_output, pose_output = net([target_image, source_image, intrinsic])
+            #motionnp = pose_output.cpu().numpy()
+            #pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)
+            '''
             motionnp = motionnp * pose_std
 
             if 'motion' in mini_batch:
@@ -386,7 +396,7 @@ def validate_epoch(net,
                 motionnp[:,:3] = trans_est
             else:
                 print('scale is not given, using 1 as the default scale value..')
-            '''
+
             # calculate flow loss
             if flow is not None:
                 flowloss = net.module.vonet.get_flow_loss(flow_output, flow, criterion, mask=mask, training = True, small_scale=False) / 0.05
@@ -394,18 +404,59 @@ def validate_epoch(net,
                 flowloss = torch.FloatTensor([0])
             '''
             
+            motion = mini_batch['motion'].float()
+            pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)
+            motion_gt = motion / pose_std
+            trans = motion_gt[:,:3]
+            trans_norm = np.linalg.norm(trans, axis=1)
+            motion_gt[:,:3] = motion_gt[:,:3]/trans_norm.reshape(-1,1)
+            motion_gt = motion_gt.to(device)
 
-            motions_gt = motions_gt / pose_std
-            motionnp = motionnp / pose_std
-            poseloss, trans_loss, rot_loss = COMPASS_linear_norm_trans_loss(torch.from_numpy(motionnp), motions_gt)
+            #motionnp = motionnp / pose_std
+            #poseloss, trans_loss, rot_loss = linear_norm_trans_loss(torch.from_numpy(motionnp), motions_gt)
+            poseloss, trans_loss, rot_loss = COMPASS_linear_norm_trans_loss(pose_output, motion_gt)
+            '''
+            if len(motionlist) == 0:
+                motionlist = motionnp
+            else:
+                motionlist = np.append(motionlist, motionnp, axis = 0)
+            '''
 
+            running_total_loss_pose += poseloss.item()
+            #running_total_loss_flow += flowloss.item()
+
+            motionnp = pose_output.clone().cpu().detach().numpy()
+            pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32) 
+            motionnp = motionnp * pose_std
+            if 'motion' in mini_batch:
+                motions_gt = mini_batch['motion']
+                scale = np.linalg.norm(motions_gt[:,:3], axis=1)
+                trans_est = motionnp[:,:3]
+                trans_est = trans_est/np.linalg.norm(trans_est,axis=1).reshape(-1,1)*scale.reshape(-1,1)
+                motionnp[:,:3] = trans_est 
+            else:
+                print('    scale is not given, using 1 as the default scale value..')
             if len(motionlist) == 0:
                 motionlist = motionnp
             else:
                 motionlist = np.append(motionlist, motionnp, axis = 0)
 
-            running_total_loss_pose += poseloss.item()
-            #running_total_loss_flow += flowloss.item()
+            motion_gt = motion_gt.clone().cpu().detach().numpy()
+            if len(motionlist_gt) == 0:
+                motionlist_gt = motions_gt
+            else:
+                motionlist_gt = np.append(motionlist_gt, motions_gt, axis = 0)
+            
+
+            est_traj = ses2poses_quat(np.array(motionnp))
+            gt_traj = ses2poses_quat(np.array(motions_gt.numpy()))
+            gt_traj_trans, est_traj_trans, s = transform_trajs(gt_traj, est_traj, True)
+            gt_SEs, est_SEs = quats2SEs(gt_traj_trans, est_traj_trans)
+            ate_eval = ATEEvaluator()
+            ate_score, gt_ate_aligned, est_ate_aligned = ate_eval.evaluate(gt_traj, est_traj, True)
+            ate_scorelist.append(ate_score)
+            plot_traj_3d(gt_ate_aligned, est_ate_aligned, vis=False, savefigname=results_dir+'/valid_traj_epoch_{}_{}'.format((epoch), str(i)+'.png'), title='ATE %.4f' %(ate_score))
+
 
             pbar.set_description(
                 ' validation R_total_loss: %.3f/%.3f' % (running_total_loss_pose / (i + 1), poseloss.item()))
@@ -413,4 +464,17 @@ def validate_epoch(net,
         #running_total_loss_flow /= len(val_loader)
         running_total_loss_pose /= len(val_loader)
 
-    return running_total_loss_pose, motionlist
+
+        
+
+        '''
+        est_traj = ses2poses_quat(np.array(motionnp))
+        gt_traj = ses2poses_quat(np.array(motions_gt.numpy()))
+        gt_traj_trans, est_traj_trans, s = transform_trajs(gt_traj, est_traj, True)
+        gt_SEs, est_SEs = quats2SEs(gt_traj_trans, est_traj_trans)
+        ate_eval = ATEEvaluator()
+        ate_score, gt_ate_aligned, est_ate_aligned = ate_eval.evaluate(gt_traj, est_traj, True)
+        plot_traj_3d(gt_ate_aligned, est_ate_aligned, vis=False, savefigname=results_dir+'/valid_traj_epoch_{}'.format(epoch)+'.png', title='ATE %.4f' %(ate_score))
+        '''
+
+    return running_total_loss_pose, ate_scorelist, motionlist, motionlist_gt
