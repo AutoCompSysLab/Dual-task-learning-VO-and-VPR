@@ -420,11 +420,11 @@ if __name__ == '__main__':
                         default=4e-4, help='momentum constant')
     parser.add_argument('--start_epoch', type=int, default=-1,
                         help='start epoch')
-    parser.add_argument('--n_epoch', type=int, default=50,
+    parser.add_argument('--n_epoch', type=int, default=25,
                         help='number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=64,
+    parser.add_argument('--batch-size', type=int, default=128,
                         help='training batch size')
-    parser.add_argument('--n_threads', type=int, default=32,
+    parser.add_argument('--n_threads', type=int, default=64,
                         help='number of parallel threads for dataloaders')
     parser.add_argument('--weight-decay', type=float, default=4e-4,
                         help='weight decay constant')
@@ -457,6 +457,7 @@ if __name__ == '__main__':
     flow_transform = transforms.Compose([ArrayToTensor()])
 
     # training and validation dataset
+    '''
     train_dataset = Changeair_Dataset(root=args.training_data_dir,
                                     source_image_transform=source_img_transforms,
                                     target_image_transform=target_img_transforms,
@@ -470,7 +471,14 @@ if __name__ == '__main__':
                                     flow_transform=flow_transform,
                                     co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
                                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
-    
+    '''
+    train_dataset, val_dataset = Tartanair_TrainigDataset(root=args.training_data_dir,
+                                    source_image_transform=source_img_transforms,
+                                    target_image_transform=target_img_transforms,
+                                    flow_transform=flow_transform,
+                                    co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
+                                    focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
+
     #Dataloader
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, 
                                         shuffle=True, num_workers=args.worker_num)
@@ -492,8 +500,8 @@ if __name__ == '__main__':
                    #weight_decay=args.weight_decay)
     scheduler = lr_scheduler.MultiStepLR(optimizer,
                                          #milestones=[65, 75, 95],
-                                         milestones=[int(args.n_epoch/2),
-                                                    int(args.n_epoch*7/8)],#e2e 25
+                                         milestones=[12,
+                                                    21],#e2e 25
                                          gamma=0.2)#poselr
 
     # load the whole model
@@ -527,7 +535,24 @@ if __name__ == '__main__':
         print('starting epoch {}:  learning rate is {}'.format(epoch, scheduler.get_last_lr()[0]))
         results_dir = os.path.join(save_path, 'result')
         if not osp.isdir(results_dir):
-            os.mkdir(results_dir)    
+            os.mkdir(results_dir)  
+
+        train_loss_pose, train_last_batch_ate = train_epoch(vonet, 
+                                 optimizer,
+                                 train_dataloader,
+                                 device,
+                                 epoch,
+                                 train_writer,
+                                 div_flow=args.div_flow,
+                                 save_path=os.path.join(save_path, 'train'),
+                                 apply_mask=False, results_dir=results_dir)#수정
+        #train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
+        train_writer.add_scalar('train loss pose', train_loss_pose, epoch)
+        #train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
+        train_writer.add_scalar('learning_rate', scheduler.get_lr()[0], epoch)
+        #print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
+        print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
+        print(colored('==> ', 'green') + 'Train last batch ate:', train_last_batch_ate)  
 
         # Validation
         valid_motionlist = np.array([])
@@ -563,25 +588,6 @@ if __name__ == '__main__':
                          'scheduler': scheduler.state_dict(),
                          'best_loss': best_val},
                         is_best, save_path, 'epoch_{}.pth'.format(epoch))
-
-        train_loss_flow, train_loss_pose, train_last_batch_ate = train_epoch(vonet, 
-                                 optimizer,
-                                 train_dataloader,
-                                 device,
-                                 epoch,
-                                 train_writer,
-                                 div_flow=args.div_flow,
-                                 save_path=os.path.join(save_path, 'train'),
-                                 apply_mask=False, results_dir=results_dir)#수정
-        train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
-        train_writer.add_scalar('train loss pose', train_loss_pose, epoch)
-        train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
-        train_writer.add_scalar('learning_rate', scheduler.get_lr()[0], epoch)
-        print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
-        print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
-        print(colored('==> ', 'green') + 'Train last batch ate:', train_last_batch_ate)
-
-
 
     print(args.seed, 'Training took:', time.time()-train_started, 'seconds')  
 

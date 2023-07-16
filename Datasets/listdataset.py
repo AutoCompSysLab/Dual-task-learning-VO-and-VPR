@@ -21,10 +21,10 @@ def get_gt_correspondence_mask(flow):
 
 
 def train_default_loader(root, path_imgs, path_flo, path_mask):
-    pose_root = '/home/jovyan/datasets/TartanAir'
+    #pose_root = '/home/jovyan/datasets/TartanAir'
     imgs = [os.path.join(root,path) for path in path_imgs]
-    flo = os.path.join(pose_root,path_flo)
-    mask = os.path.join(pose_root,path_mask)
+    flo = os.path.join(root,path_flo)
+    mask = os.path.join(root,path_mask)
 
     return [imread(img).astype(np.uint8) for img in imgs], np.load(flo), np.load(mask)
 
