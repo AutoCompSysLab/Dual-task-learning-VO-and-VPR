@@ -420,7 +420,7 @@ if __name__ == '__main__':
                         default=4e-4, help='momentum constant')
     parser.add_argument('--start_epoch', type=int, default=-1,
                         help='start epoch')
-    parser.add_argument('--n_epoch', type=int, default=25,
+    parser.add_argument('--n_epoch', type=int, default=8,
                         help='number of training epochs')
     parser.add_argument('--batch-size', type=int, default=128,
                         help='training batch size')
@@ -493,15 +493,15 @@ if __name__ == '__main__':
     # models
     vonet = TartanVO()
     print(colored('==> ', 'blue') + 'TartanVO created.')
-
+    
     optimizer = \
         optim.Adam(filter(lambda p: p.requires_grad, vonet.parameters()),
                    lr=args.lr)
                    #weight_decay=args.weight_decay)
     scheduler = lr_scheduler.MultiStepLR(optimizer,
                                          #milestones=[65, 75, 95],
-                                         milestones=[12,
-                                                    21],#e2e 25
+                                         milestones=[4,
+                                                    7],#e2e 25
                                          gamma=0.2)#poselr
 
     # load the whole model
@@ -537,7 +537,7 @@ if __name__ == '__main__':
         if not osp.isdir(results_dir):
             os.mkdir(results_dir)  
 
-        train_loss_pose, train_last_batch_ate = train_epoch(vonet, 
+        train_loss_flow, train_loss_pose, train_last_batch_ate = train_epoch(vonet, 
                                  optimizer,
                                  train_dataloader,
                                  device,
@@ -546,11 +546,11 @@ if __name__ == '__main__':
                                  div_flow=args.div_flow,
                                  save_path=os.path.join(save_path, 'train'),
                                  apply_mask=False, results_dir=results_dir)#수정
-        #train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
+        train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
         train_writer.add_scalar('train loss pose', train_loss_pose, epoch)
-        #train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
+        train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
         train_writer.add_scalar('learning_rate', scheduler.get_lr()[0], epoch)
-        #print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
+        print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
         print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
         print(colored('==> ', 'green') + 'Train last batch ate:', train_last_batch_ate)  
 

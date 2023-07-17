@@ -40,21 +40,21 @@ class VONet(nn.Module):
     def __init__(self):
         super(VONet, self).__init__()
 
-        #self.flowNet     = FlowNet()
+        self.flowNet     = FlowNet()
         self.flowPoseNet = FlowPoseNet()
 
     def forward(self, x):
         # import ipdb;ipdb.set_trace() 
-        #flow2, flow3, flow4, flow5, flow6 = self.flowNet(x[0:2])
-        #flow = [flow2, flow3, flow4, flow5, flow6]
+        flow2, flow3, flow4, flow5, flow6 = self.flowNet(x[0:2])
+        flow = [flow2, flow3, flow4, flow5, flow6]
         #flow_scale = 20.0
         #import pdb; pdb.set_trace()
         #flow = flow[0]
         #flow2 = flow2/flow_scale
-        flow_input = torch.cat( ( x[3], x[2] ), dim=1 )        
+        flow_input = torch.cat( ( flow2, x[2] ), dim=1 )        
         pose = self.flowPoseNet( flow_input )
 
-        return pose
+        return flow, pose
 
     def get_flow_loss(self, netoutput, target, criterion, mask=None, training = True, small_scale=False):
         '''

@@ -267,18 +267,18 @@ def train_epoch(net,
         intrinsic = mini_batch['intrinsic'].float().to(device)
         flow = mini_batch['flow'].float().to(device)
         #import pdb; pdb.set_trace()
-        pose_output = net([source_image, target_image, intrinsic, flow])
+        flow_output, pose_output = net([source_image, target_image, intrinsic])
         #flow_output, pose_output = net([target_image, source_image, intrinsic])
         pose_output_np = pose_output.data.cpu().detach().numpy().squeeze()
         # calculate flow loss
-        '''
+
         if flow is not None:
             flowloss = net.module.vonet.get_flow_loss(flow_output, flow, criterion, mask=mask, training = True, small_scale=True)
         else:
             flowloss = torch.FloatTensor([0])
         
         flow_scale = 20.0
-        '''
+
         motion_gt = mini_batch['motion'].float()
     
         pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)
@@ -291,17 +291,18 @@ def train_epoch(net,
         #poseloss, trans_loss, rot_loss = COMPASS_linear_norm_trans_loss(pose_output, motion_gt)
         poseloss, trans_loss, rot_loss = linear_norm_trans_loss(pose_output, motion_gt)
 
-        #Loss = flowloss/flow_scale + poseloss
+        Loss = flowloss/flow_scale + poseloss
         Loss = poseloss
         Loss.backward()
         optimizer.step()
         n_iter += 1
         running_total_loss_pose += poseloss.item()
-        #running_total_loss_flow += flowloss.item()
+        running_total_loss_flow += flowloss.item()
         pbar.set_description(
-            'train R_total_loss: %.3f/%.3f' % (running_total_loss_pose / (i + 1), poseloss.item()))
+            'train R_total_loss: %.3f/%.3f/%.3f/%.3f' % (running_total_loss_flow / (i + 1), flowloss.item(),
+                                                            running_total_loss_pose / (i + 1), poseloss.item()))
     
-    #running_total_loss_flow /= len(train_loader)
+    running_total_loss_flow /= len(train_loader)
     running_total_loss_pose /= len(train_loader)
 
     ##only for last batch
@@ -324,7 +325,7 @@ def train_epoch(net,
     ate_score, gt_ate_aligned, est_ate_aligned = ate_eval.evaluate(gt_traj, est_traj, True)
     plot_traj_3d(gt_ate_aligned, est_ate_aligned, vis=False, savefigname=results_dir+'/train_traj_epoch_{}'.format(epoch)+'.png', title='ATE %.4f' %(ate_score))
 
-    return running_total_loss_pose, ate_score
+    return running_total_loss_flow, running_total_loss_pose, ate_score
 
 
 def validate_epoch(net,
@@ -386,8 +387,8 @@ def validate_epoch(net,
             intrinsic, flow, mask = None, None, None
             intrinsic = mini_batch['intrinsic'].float().to(device)
             #import pdb; pdb.set_trace()
-            #flow = mini_batch['flow'].float().to(device)
-            pose_output = net([source_image, target_image, intrinsic, flow])
+            flow = mini_batch['flow'].float().to(device)
+            flow_output, pose_output = net([source_image, target_image, intrinsic])
             #flow_output, pose_output = net([target_image, source_image, intrinsic])
             #motionnp = pose_output.cpu().numpy()
             #pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)

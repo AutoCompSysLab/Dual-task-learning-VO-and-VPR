@@ -54,9 +54,9 @@ class TartanVO(nn.Module):
         self.flow_norm = 20 # scale factor for flow
     
     def forward(self, x):
-        pose = self.vonet(x)
+        flow, pose = self.vonet(x)
 
-        return pose
+        return flow, pose
 
     def test_batch(self, sample):
         self.test_count += 1
