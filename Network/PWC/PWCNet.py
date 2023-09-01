@@ -163,7 +163,7 @@ class PWCDCNet(nn.Module):
         return output*mask
 
 
-    def forward(self, x):
+    def forward(self,x):
         im1 = x[0]
         im2 = x[1]
         
@@ -259,74 +259,8 @@ class PWCDCNet(nn.Module):
         x = self.dc_conv4(self.dc_conv3(self.dc_conv2(self.dc_conv1(x))))
         flow2 = flow2 + self.dc_conv7(self.dc_conv6(self.dc_conv5(x)))
         
-        #if training:
-        return flow2, flow3, flow4, flow5, flow6
-        #else:
-            #return flow2
+        return flow2
 
-    def get_loss(self, output, target, criterion, training, small_scale=False):
-        '''
-        return flow loss
-        '''
-        if training:
-            target4, target8, target16, target32, target64 = self.scale_targetflow(target, small_scale)
-            loss1 = criterion(output[0], target4)
-            loss2 = criterion(output[1], target8)
-            loss3 = criterion(output[2], target16)
-            loss4 = criterion(output[3], target32)
-            loss5 = criterion(output[4], target64)
-            loss = (loss1 + loss2 + loss3 + loss4 + loss5)/5.0
-        else:
-            if small_scale:
-                output4 = output[0]
-            else:
-                output4 = F.interpolate(output[0], scale_factor=4, mode='bilinear', align_corners=True)# /4.0
-            loss = criterion(output4, target)
-        return loss
-
-    def get_loss_w_mask(self, output, target, criterion, mask, training, small_scale=False):
-        '''
-        return flow loss
-        small_scale: True - the target and mask are of the same size with output
-                        False - the target and mask are of 4 time size of the output
-        '''
-        if training: # PWCNet + training
-            target4, target8, target16, target32, target64 = self.scale_targetflow(target, small_scale)
-            mask4, mask8, mask16, mask32, mask64 = self.scale_mask(mask, small_scale=small_scale) # only consider coss occlution which indicates moving objects
-            mask4 = mask4.expand(target4.shape)
-            mask8 = mask8.expand(target8.shape)
-            mask16 = mask16.expand(target16.shape)
-            mask32 = mask32.expand(target32.shape)
-            mask64 = mask64.expand(target64.shape)
-            loss1 = criterion(output[0][mask4], target4[mask4])
-            loss2 = criterion(output[1][mask8], target8[mask8])
-            loss3 = criterion(output[2][mask16], target16[mask16])
-            loss4 = criterion(output[3][mask32], target32[mask32])
-            loss5 = criterion(output[4][mask64], target64[mask64])
-            loss = (loss1 + loss2 + loss3 + loss4 + loss5)/5.0
-        else:
-            if small_scale:
-                output4 = output[0]
-            else:
-                output4 = F.interpolate(output[0], scale_factor=4, mode='bilinear', align_corners=True)# /4.0
-            valid_mask = mask < 10
-            valid_mask = valid_mask.expand(target.shape)
-            loss = criterion(output4[valid_mask], target[valid_mask])
-        return loss
-    
-    def scale_targetflow(self, targetflow, small_scale=False):
-        '''
-        calculte GT flow in different scales 
-        '''
-        if small_scale:
-            target4 = targetflow
-        else:
-            target4 = F.interpolate(targetflow, scale_factor=0.25, mode='bilinear', align_corners=True) #/4.0
-        target8 = F.interpolate(target4, scale_factor=0.5, mode='bilinear', align_corners=True) #/2.0
-        target16 = F.interpolate(target8, scale_factor=0.5, mode='bilinear', align_corners=True) #/2.0
-        target32 = F.interpolate(target16, scale_factor=0.5, mode='bilinear', align_corners=True) #/2.0
-        target64 = F.interpolate(target32, scale_factor=0.5, mode='bilinear', align_corners=True) #/2.0
-        return (target4, target8, target16, target32, target64)
 
 def pwc_dc_net(path=None):
 
@@ -338,10 +272,6 @@ def pwc_dc_net(path=None):
         else:
             model.load_state_dict(data)
     return model
-
-
-
-
 
 
 

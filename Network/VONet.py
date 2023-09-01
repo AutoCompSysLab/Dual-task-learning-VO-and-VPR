@@ -33,7 +33,7 @@
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
-from .PWC.PWCNet import PWCDCNet as FlowNet
+from .PWC import PWCDCNet as FlowNet
 from .VOFlowNet import VOFlowRes as FlowPoseNet
 
 class VONet(nn.Module):
@@ -44,26 +44,10 @@ class VONet(nn.Module):
         self.flowPoseNet = FlowPoseNet()
 
     def forward(self, x):
-        # import ipdb;ipdb.set_trace() 
-        flow2, flow3, flow4, flow5, flow6 = self.flowNet(x[0:2])
-        flow = [flow2, flow3, flow4, flow5, flow6]
-        #flow_scale = 20.0
-        #import pdb; pdb.set_trace()
-        #flow = flow[0]
-        #flow2 = flow2/flow_scale
-        flow_input = torch.cat( ( flow2, x[2] ), dim=1 )        
+        # import ipdb;ipdb.set_trace()
+        flow = self.flowNet(x[0:2])
+        flow_input = torch.cat( ( flow, x[2] ), dim=1 )        
         pose = self.flowPoseNet( flow_input )
 
         return flow, pose
-
-    def get_flow_loss(self, netoutput, target, criterion, mask=None, training = True, small_scale=False):
-        '''
-        small_scale: the target flow and mask are down scaled (when in forward_vo)
-        '''
-        # netoutput 1/4, 1/8, ..., 1/32 size flow
-        if mask is not None:
-            return self.flowNet.get_loss_w_mask(netoutput, target, criterion, mask, training, small_scale=small_scale)
-        else:
-            return self.flowNet.get_loss(netoutput, target, criterion, training, small_scale=small_scale)
-    
 

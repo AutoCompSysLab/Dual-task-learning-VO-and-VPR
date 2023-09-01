@@ -9,6 +9,7 @@ from evaluator.trajectory_transform import trajectory_transform, rescale
 from evaluator.transformation import pos_quats2SE_matrices, SE2pos_quat
 from Datasets.transformation import ses2poses_quat
 from Datasets.utils import plot_traj_3d, plot_traj, visflow
+from core.loss import sequence_loss
 import torch.nn as nn
 import pdb
 
@@ -211,12 +212,14 @@ def COMPASS_linear_norm_trans_loss(output, motion, mask=None):
     return loss, trans_loss.item() , rot_loss.item()
 
 
-def train_epoch(net,
+def train_epoch(flownet,
+                posenet,
                 optimizer,
                 train_loader,
                 device,
                 epoch,
                 train_writer,
+                cfg,
                 div_flow=1.0,
                 save_path=None,
                 loss_grid_weights=None,
@@ -246,7 +249,8 @@ def train_epoch(net,
         we only use the ground truth flow as highest resolution and downsample it without scaling.
     """
     n_iter = epoch*len(train_loader)
-    net.train()
+    flownet.train()
+    posenet.train()
     running_total_loss_flow = 0
     running_total_loss_trans = 0
     running_total_loss_rot = 0
@@ -267,13 +271,18 @@ def train_epoch(net,
         intrinsic = mini_batch['intrinsic'].float().to(device)
         flow = mini_batch['flow'].float().to(device)
         #import pdb; pdb.set_trace()
-        flow_output, pose_output = net([source_image, target_image, intrinsic])
+        flow_output = flownet(source_image, target_image)
+        #import pdb; pdb.set_trace()
+        flow_scale = 20.0
+        flow_input = flow_output[-1].clone()/flow_scale
+        pose_output = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))
         #flow_output, pose_output = net([target_image, source_image, intrinsic])
         pose_output_np = pose_output.data.cpu().detach().numpy().squeeze()
         # calculate flow loss
-
+        valid = None
         if flow is not None:
-            flowloss = net.module.vonet.get_flow_loss(flow_output, flow, criterion, mask=mask, training = True, small_scale=True)
+            #flowloss = net.module.vonet.get_flow_loss(flow_output, flow, criterion, mask=mask, training = True, small_scale=True)
+            flowloss, metrics = sequence_loss(flow_output, flow, valid, cfg)
         else:
             flowloss = torch.FloatTensor([0])
         
@@ -328,7 +337,8 @@ def train_epoch(net,
     return running_total_loss_flow, running_total_loss_pose, ate_score
 
 
-def validate_epoch(net,
+def validate_epoch(flownet,
+                   posenet,
                    motionlist,
                    motionlist_gt,
                    val_loader,
@@ -365,7 +375,8 @@ def validate_epoch(net,
 
     """
 
-    net.eval()
+    flownet.eval()
+    posenet.eval()
     #if loss_grid_weights is None:
         #loss_grid_weights = [0.32, 0.08, 0.02, 0.01, 0.005]
 
@@ -388,7 +399,12 @@ def validate_epoch(net,
             intrinsic = mini_batch['intrinsic'].float().to(device)
             #import pdb; pdb.set_trace()
             flow = mini_batch['flow'].float().to(device)
-            flow_output, pose_output = net([source_image, target_image, intrinsic])
+            flow_output = flownet(source_image, target_image)
+            #import pdb; pdb.set_trace()
+            flow_scale = 20.0
+            flow_input = flow_output.clone()/flow_scale
+            pose_output = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))
+            #flow_output, pose_output = net([source_image, target_image, intrinsic])
             #flow_output, pose_output = net([target_image, source_image, intrinsic])
             #motionnp = pose_output.cpu().numpy()
             #pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)

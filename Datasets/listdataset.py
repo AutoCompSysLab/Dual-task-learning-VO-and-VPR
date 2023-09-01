@@ -20,13 +20,13 @@ def get_gt_correspondence_mask(flow):
     return mask
 
 
-def train_default_loader(root, path_imgs, path_flo, path_mask):
+def train_default_loader(root, path_imgs, path_flo):
     #pose_root = '/home/jovyan/datasets/TartanAir'
     imgs = [os.path.join(root,path) for path in path_imgs]
     flo = os.path.join(root,path_flo)
-    mask = os.path.join(root,path_mask)
+    #mask = os.path.join(root,path_mask)
 
-    return [imread(img).astype(np.uint8) for img in imgs], np.load(flo), np.load(mask)
+    return [imread(img).astype(np.uint8) for img in imgs], np.load(flo)
 
 def test_default_loader(root, path_imgs):
     imgs = [os.path.join(root,path) for path in path_imgs]
@@ -43,7 +43,7 @@ def make_intrinsics_layer(w, h, fx, fy, ox, oy):
 
 class TrainListDataset(data.Dataset):
     def __init__(self, root, path_list, source_image_transform=None, target_image_transform=None, flow_transform=None,
-                 co_transform=None, loader=train_default_loader, mask=True, size=False, transform = None, 
+                 co_transform=None, loader=train_default_loader, mask=False, size=False, transform = None, 
                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0):
         """
 
@@ -82,24 +82,24 @@ class TrainListDataset(data.Dataset):
 
     def __getitem__(self, index):
         # for all inputs[0] must be the source and inputs[1] must be the target
-        inputs, gt_flow, gt_mask, gt_motion = self.path_list[index]
+        inputs, gt_flow, gt_motion = self.path_list[index]
 
         if not self.mask:
             if self.size:
-                inputs, gt_flow, gt_mask, source_size = self.loader(self.root, inputs, gt_flow, gt_mask)
+                inputs, gt_flow, source_size = self.loader(self.root, inputs, gt_flow)
             else:
-                inputs, gt_flow, gt_mask = self.loader(self.root, inputs, gt_flow, gt_mask)
+                inputs, gt_flow = self.loader(self.root, inputs, gt_flow)
                 source_size = inputs[0].shape
             #if self.co_transform is not None:
                 #inputs, gt_flow = self.co_transform(inputs, gt_flow)
 
-            mask = get_gt_correspondence_mask(gt_flow)
+            #mask = get_gt_correspondence_mask(gt_flow)
         else:
             if self.size:
-                inputs, gt_flow, mask, source_size = self.loader(self.root, inputs, gt_flow, gt_mask)
+                inputs, gt_flow, source_size = self.loader(self.root, inputs, gt_flow)
             else:
                 # loader comes with a mask of valid correspondences
-                inputs, gt_flow, mask = self.loader(self.root, inputs, gt_flow, gt_mask)
+                inputs, gt_flow = self.loader(self.root, inputs, gt_flow)
                 source_size = inputs[0].shape
             # mask is shape hxw
             #if self.co_transform is not None:
@@ -111,8 +111,9 @@ class TrainListDataset(data.Dataset):
         # after co transform that could be reshapping the target
         # transforms here will always contain conversion to tensor (then channel is before)
         res = {'source_image': inputs[0], 'target_image': inputs[1]}
-
+        #import pdb; pdb.set_trace()
         h, w, _ = inputs[0].shape
+        #print(inputs[0].shape)
         intrinsicLayer = make_intrinsics_layer(w, h, self.focalx, self.focaly, self.centerx, self.centery)
         res['intrinsic'] = intrinsicLayer
         res['flow'] = gt_flow
@@ -126,7 +127,7 @@ class TrainListDataset(data.Dataset):
         if self.flow_transform is not None:
             gt_flow = self.flow_transform(gt_flow)
         '''
-        res['correspondence_mask'] = mask.astype(np.bool) if float(torch.__version__[:3]) >= 1.1  else mask.astype(np.uint8)
+        #res['correspondence_mask'] = mask.astype(np.bool) if float(torch.__version__[:3]) >= 1.1  else mask.astype(np.uint8)
         res['source_image_size'] =source_size
         res['motion'] = gt_motion
         return res
@@ -145,7 +146,7 @@ class TrainListDataset(data.Dataset):
 
 class TestListDataset(data.Dataset):
     def __init__(self, root, path_list, source_image_transform=None, target_image_transform=None, flow_transform=None,
-                 co_transform=None, loader=test_default_loader, mask=True, size=False, transform = None, 
+                 co_transform=None, loader=test_default_loader, mask=False, size=False, transform = None, 
                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0):
         """
 

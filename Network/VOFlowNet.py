@@ -79,8 +79,8 @@ class VOFlowRes(nn.Module):
     def __init__(self):
         super(VOFlowRes, self).__init__()
         inputnum = 4
-        blocknums = [2,2,3,4,6,7,3]
-        outputnums = [32,64,64,128,128,256,256]
+        blocknums = [2,2,3,4,6,7,9,10,3]
+        outputnums = [32,64,64,128,128,256,256,256,256]
 
         self.firstconv = nn.Sequential(conv(inputnum, 32, 3, 2, 1, 1, False),
                                        conv(32, 32, 3, 1, 1, 1),
@@ -88,11 +88,13 @@ class VOFlowRes(nn.Module):
 
         self.inplanes = 32
 
-        self.layer1 = self._make_layer(BasicBlock, outputnums[2], blocknums[2], 2, 1, 1) # 40 x 28
-        self.layer2 = self._make_layer(BasicBlock, outputnums[3], blocknums[3], 2, 1, 1) # 20 x 14
-        self.layer3 = self._make_layer(BasicBlock, outputnums[4], blocknums[4], 2, 1, 1) # 10 x 7
-        self.layer4 = self._make_layer(BasicBlock, outputnums[5], blocknums[5], 2, 1, 1) # 5 x 4
-        self.layer5 = self._make_layer(BasicBlock, outputnums[6], blocknums[6], 2, 1, 1) # 3 x 2
+        self.layer1 = self._make_layer(BasicBlock, outputnums[2], blocknums[2], 2, 1, 1) # 160 x 112
+        self.layer2 = self._make_layer(BasicBlock, outputnums[3], blocknums[3], 2, 1, 1) # 80 x 56
+        self.layer3 = self._make_layer(BasicBlock, outputnums[4], blocknums[4], 2, 1, 1) # 40 x 28
+        self.layer4 = self._make_layer(BasicBlock, outputnums[5], blocknums[5], 2, 1, 1) # 20 x 14
+        self.layer5 = self._make_layer(BasicBlock, outputnums[6], blocknums[6], 2, 1, 1) # 10 x 7
+        self.layer6 = self._make_layer(BasicBlock, outputnums[7], blocknums[7], 2, 1, 1) # 5 x 4
+        self.layer7 = self._make_layer(BasicBlock, outputnums[8], blocknums[8], 2, 1, 1) # 3 x 2
         fcnum = outputnums[6] * 6
 
         fc1_trans = linear(fcnum, 128)
@@ -129,6 +131,8 @@ class VOFlowRes(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         x = self.layer5(x)
+        x = self.layer6(x)
+        x = self.layer7(x)
         
         x = x.view(x.shape[0], -1)
         x_trans = self.voflow_trans(x)
