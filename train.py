@@ -226,7 +226,7 @@ if __name__ == '__main__':
         results_dir = os.path.join(save_path, 'result')
         if not osp.isdir(results_dir):
             os.mkdir(results_dir)  
-
+        
         train_loss_flow, train_loss_pose, train_last_batch_ate = train_epoch(flownet, posenet,
                                  optimizer,
                                  train_dataloader,
@@ -244,7 +244,7 @@ if __name__ == '__main__':
         print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
         print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
         print(colored('==> ', 'green') + 'Train last batch ate:', train_last_batch_ate)  
-
+        
         # Validation
         valid_motionlist = np.array([])
         valid_motionlist_gt = np.array([])
@@ -256,7 +256,7 @@ if __name__ == '__main__':
         #test_writer.add_scalar('test last batch ate', val_last_batch_ate, epoch)        
         #print(colored('==> ', 'blue') + 'Val average flow loss :', valid_loss_flow)
         print(colored('==> ', 'blue') + 'Val average pose loss:', valid_loss_pose)
-        print(colored('==> ', 'blue') + 'Val last batch ate:', val_last_batch_ate)
+        #print(colored('==> ', 'blue') + 'Val last batch ate:', val_last_batch_ate)
 
         print(colored('==> ', 'blue') + 'finished epoch :', epoch)
         

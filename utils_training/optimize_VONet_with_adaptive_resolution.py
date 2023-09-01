@@ -402,7 +402,8 @@ def validate_epoch(flownet,
             flow_output = flownet(source_image, target_image)
             #import pdb; pdb.set_trace()
             flow_scale = 20.0
-            flow_input = flow_output.clone()/flow_scale
+            flow_input = flow_output[0].clone()/flow_scale
+            #import pdb; pdb.set_trace()
             pose_output = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))
             #flow_output, pose_output = net([source_image, target_image, intrinsic])
             #flow_output, pose_output = net([target_image, source_image, intrinsic])
