@@ -46,7 +46,9 @@ from pathlib import Path
 
 #from Network.GLAM import GLAM
 from core.FlowFormer import build_flowformer
-from Network.VOFlowNet import VOFlowRes as FlowPoseNet
+from Network.VO_mixvpr import VPRPosenet
+#from Network.mixvpr import MixVPR
+#from Network.VOFlowNet import VOFlowRes as FlowPoseNet
 #from Network.helper import get_aggregator
 
 if __name__ == '__main__':
@@ -165,7 +167,7 @@ if __name__ == '__main__':
     #attention_net = GLAM() # 파라미터 입력해야됨
     flownet = build_flowformer(cfg)
     print(colored('==> ', 'blue') + 'Flowformer created.')
-    posenet = FlowPoseNet()
+    posenet = VPRPosenet(in_channels=256, in_h=20, in_w=14, out_channels=1024, mix_depth=4, mlp_ratio=1, out_rows=4)
     print(colored('==> ', 'blue') + 'Posenet created.')    
     #vpr_net = get_aggregator(agg_arch, agg_config)
     #scd_net = TANet(self.args.encoder_arch, self.args.local_kernel_size, self.args.attn_stride,
@@ -177,7 +179,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(cfg.restore_ckpt), strict=True)
 
 
-    
+    '''
     optimizer = \
         optim.Adam(filter(lambda p: p.requires_grad, chain(flownet.parameters(),posenet.parameters())),
                    lr=args.lr,)
@@ -187,11 +189,42 @@ if __name__ == '__main__':
                                          milestones=[12,
                                                     21],#e2e 25
                                          gamma=0.2)#poselr
+    '''
+    optimizer = optim.AdamW(chain(flownet.parameters(),posenet.parameters()), lr=cfg.trainer.canonical_lr, weight_decay=cfg.trainer.adamw_decay, eps=cfg.trainer.epsilon)
+    scheduler = lr_scheduler.OneCycleLR(optimizer, cfg.trainer.canonical_lr, 6364,
+                pct_start=0.05, cycle_momentum=False, anneal_strategy=cfg.trainer.anneal_strategy)
 
+    '''
     # load the whole model
     if args.pretrained_model is not None:
         modelname = args.pretrained_model
         vonet = load_model(vonet, modelname)
+    '''
+
+    if args.pretrained_flownet:
+        checkpoint = torch.load(args.pretrained_flownet)
+        #flownet.load_state_dict(checkpoint['state_dict'])
+        state_dict = flownet.state_dict()
+        for k1 in checkpoint['state_dict'].keys():
+            if k1 in state_dict.keys():
+                state_dict[k1] = checkpoint['state_dict'][k1].to(device)
+        flownet.load_state_dict(state_dict)
+        '''
+        checkpoint = torch.load(args.pretrained_flownet)
+        flownet.load_state_dict(checkpoint['state_dict'])
+        '''
+        #cur_snapshot = args.name_exp
+        
+
+    if args.pretrained_posenet:
+        checkpoint = torch.load(args.pretrained_posenet)
+        state_dict = posenet.state_dict()
+        for k1 in state_dict.keys():
+            if 'state_dict' in checkpoint.keys():
+                state_dict[k1] = checkpoint['state_dict'][k1].to(device)
+            else:
+                state_dict[k1] = checkpoint['module.flowPoseNet.'+str(k1)].to(device)
+        posenet.load_state_dict(state_dict)
     
     if not osp.isdir(args.snapshots):
         os.mkdir(args.snapshots)

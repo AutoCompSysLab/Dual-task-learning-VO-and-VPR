@@ -174,7 +174,7 @@ def calculate_epe_and_pck_per_dataset(test_dataloader, network, device, threshol
         output['kitti2015-F1'] = F1 / float(n_registered_pxs)
     return output
 
-def test(vonet, motionlist, 
+def test(flownet, posenet, motionlist, 
                    test_loader, 
                    device,
                    save_path,
@@ -204,8 +204,9 @@ def test(vonet, motionlist,
 
     """
 
-    vonet.eval()
-
+    #vonet.eval()
+    flownet.eval()
+    posenet.eval()
     with torch.no_grad():
         pbar = tqdm(enumerate(test_loader), total=len(test_loader))
 
@@ -222,8 +223,13 @@ def test(vonet, motionlist,
             flow_scale = 20.0
             '''
             intrinsic = mini_batch['intrinsic'].float().to(device)
+            flow_output = flownet(source_image, target_image)
+            #import pdb; pdb.set_trace()
+            flow_scale = 20.0
+            flow_input = flow_output[0].clone()/flow_scale
+            pose_output = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))  
             #flow_output, pose_output = vonet([target_image, source_image, intrinsic])
-            flow_output, pose_output = vonet([source_image, target_image, intrinsic])
+            #flow_output, pose_output = vonet([source_image, target_image, intrinsic])
             
             #with flow_output 
             '''

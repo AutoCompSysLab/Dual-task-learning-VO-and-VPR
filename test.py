@@ -15,7 +15,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from Datasets.ChangeAir_cvpr import Changeair_cvpr_Dataset
 from Datasets.TartanAir_cvpr import Tartanair_cvpr_Dataset
 from Datasets.TartanAir import Tartanair_TestDataset
-from TartanVO import TartanVO
+#from TartanVO import TartanVO
 from utils_training.utils_CNN import load_checkpoint, save_checkpoint, boolean_string
 from utils_training.utils_load_model import load_model
 from tensorboardX import SummaryWriter
@@ -27,7 +27,17 @@ from Datasets.transformation import ses2poses_quat
 from utils.evaluate import test
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel
+from itertools import chain
 
+from configs.default import get_cfg
+from core.utils.misc import process_cfg
+from loguru import logger as loguru_logger
+from pathlib import Path
+
+from core.FlowFormer import build_flowformer
+from Network.VO_mixvpr import VPRPosenet
+#from Network.mixvpr import MixVPR
+#from Network.VOFlowNet import VOFlowRes as FlowPoseNet
 
 if __name__ == "__main__":
  # Argument parsing
@@ -81,6 +91,11 @@ if __name__ == "__main__":
     parser.add_argument('--fix-ratio',  action='store_true',  default=False)
 
     args = parser.parse_args()
+    cfg = get_cfg()
+    cfg.update(vars(args))
+    process_cfg(cfg)
+    loguru_logger.add(str(Path(cfg.log_dir) / 'log.txt'), encoding="utf8")
+    loguru_logger.info(cfg)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -90,9 +105,9 @@ if __name__ == "__main__":
     # datasets, pre-processing of the images is done within the network function !
     source_img_transforms = transforms.Compose([ArrayToTensor(get_float=False)])
     target_img_transforms = transforms.Compose([ArrayToTensor(get_float=False)])
-    valid_transform = Compose([CropCenter((args.image_height, args.image_width)), DownscaleFlow(), ToTensor()]) #only when valid
+    valid_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()]) #only when valid
     #train_transform = Compose([RandomCropandResize((args.image_height, args.image_width), scale=(0.4, 1.0), ratio=(0.5, 2.0)), DownscaleFlow(), ToTensor()])
-    train_transform = Compose([RandomResizeCrop((args.image_height, args.image_width), max_scale=2.5, keep_center=args.random_crop_center, fix_ratio=args.fix_ratio), DownscaleFlow(), ToTensor()])
+    train_transform = Compose([RandomResizeCrop((args.image_height, args.image_width), max_scale=2.5, keep_center=args.random_crop_center, fix_ratio=args.fix_ratio), ToTensor()])
     #train_transform = valid_transform
 
     flow_transform = transforms.Compose([ArrayToTensor()]) # just put channels first and put it to float
@@ -125,15 +140,49 @@ if __name__ == "__main__":
                                 num_workers=args.n_threads)
 
     # models
-    vonet = TartanVO()
-    print(colored('==> ', 'blue') + 'TartanVO created.')
+    #vonet = TartanVO()
+    
+    flownet = build_flowformer(cfg)
+    print(colored('==> ', 'blue') + 'Flowformer created.')
+    posenet = VPRPosenet(in_channels=256, in_h=20, in_w=14, out_channels=1024, mix_depth=4, mlp_ratio=1, out_rows=4)
+    print(colored('==> ', 'blue') + 'Posenet created.')    
 
+    if args.pretrained_flownet:
+        checkpoint = torch.load(args.pretrained_flownet)
+        #flownet.load_state_dict(checkpoint['state_dict'])
+        state_dict = flownet.state_dict()
+        for k1 in checkpoint['state_dict'].keys():
+            if k1 in state_dict.keys():
+                state_dict[k1] = checkpoint['state_dict'][k1].to(device)
+        flownet.load_state_dict(state_dict)
+        '''
+        checkpoint = torch.load(args.pretrained_flownet)
+        flownet.load_state_dict(checkpoint['state_dict'])
+        '''
+        #cur_snapshot = args.name_exp
+        
+
+    if args.pretrained_posenet:
+        checkpoint = torch.load(args.pretrained_posenet)
+        state_dict = posenet.state_dict()
+        for k1 in state_dict.keys():
+            if 'state_dict' in checkpoint.keys():
+                state_dict[k1] = checkpoint['state_dict'][k1].to(device)
+            else:
+                state_dict[k1] = checkpoint['module.flowPoseNet.'+str(k1)].to(device)
+        posenet.load_state_dict(state_dict)
+    '''
     if args.pretrained_model is not None:
         modelname = args.pretrained_model
         vonet = load_model(vonet, modelname)
+    '''
+    flownet = nn.DataParallel(flownet)
+    posenet = nn.DataParallel(posenet)
+    flownet = flownet.to(device)
+    posenet = posenet.to(device)
 
-    vonet = nn.DataParallel(vonet)
-    vonet = vonet.to(device)
+    #vonet = nn.DataParallel(vonet)
+    #vonet = vonet.to(device)
 
     cur_snapshot = args.name_exp
     save_path = osp.join(args.snapshots, cur_snapshot)
@@ -145,7 +194,7 @@ if __name__ == "__main__":
         os.mkdir(results_dir)
 
     test_motionlist = np.array([])
-    test_motionlist = test(vonet, test_motionlist, 
+    test_motionlist = test(flownet, posenet, test_motionlist, 
                    test_dataloader, 
                    device,
                    save_path=os.path.join(save_path, 'test'),

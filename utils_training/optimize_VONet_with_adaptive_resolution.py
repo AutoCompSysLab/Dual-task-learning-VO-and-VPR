@@ -286,7 +286,7 @@ def train_epoch(flownet,
         else:
             flowloss = torch.FloatTensor([0])
         
-        flow_scale = 20.0
+        flow_scale = 140.0
 
         motion_gt = mini_batch['motion'].float()
     
@@ -301,7 +301,7 @@ def train_epoch(flownet,
         poseloss, trans_loss, rot_loss = linear_norm_trans_loss(pose_output, motion_gt)
 
         Loss = flowloss/flow_scale + poseloss
-        Loss = poseloss
+        #Loss = poseloss
         Loss.backward()
         optimizer.step()
         n_iter += 1

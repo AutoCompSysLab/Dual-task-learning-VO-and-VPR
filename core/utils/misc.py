@@ -23,7 +23,9 @@ def process_cfg(cfg):
     now_time = '{:02d}_{:02d}_{:02d}_{:02d}'.format(now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min)
     log_dir += cfg.suffix + '(' + now_time + ')'
     cfg.log_dir = log_dir
+    '''
     os.makedirs(log_dir)
 
     shutil.copytree('configs', f'{log_dir}/configs')
     shutil.copytree('core/FlowFormer', f'{log_dir}/FlowFormer')
+    '''
