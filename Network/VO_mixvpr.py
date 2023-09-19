@@ -114,6 +114,7 @@ class VOFlowRes(nn.Module):
         self.layer5 = self._make_layer(BasicBlock, outputnums[6], blocknums[6], 2, 1, 1) # 10 x 7
         self.layer6 = self._make_layer(BasicBlock, outputnums[7], blocknums[7], 2, 1, 1) # 5 x 4
         self.layer7 = self._make_layer(BasicBlock, outputnums[8], blocknums[8], 2, 1, 1) # 3 x 2
+        '''
         fcnum = outputnums[6] * 6
 
         fc1_trans = linear(fcnum, 128)
@@ -127,6 +128,7 @@ class VOFlowRes(nn.Module):
 
         self.voflow_trans = nn.Sequential(fc1_trans, fc2_trans, fc3_trans)
         self.voflow_rot = nn.Sequential(fc1_rot, fc2_rot, fc3_rot)
+        '''
 
 
     def _make_layer(self, block, planes, blocks, stride, pad, dilation):
@@ -154,9 +156,10 @@ class VOFlowRes(nn.Module):
         x = self.layer7(x)
         
         x = x.view(x.shape[0], -1)
-        x_trans = self.voflow_trans(x)
-        x_rot = self.voflow_rot(x)
-        return torch.cat((x_trans, x_rot), dim=1)
+        #x_trans = self.voflow_trans(x)
+        #x_rot = self.voflow_rot(x)
+        #return torch.cat((x_trans, x_rot), dim=1)
+        return x
 
 
 
@@ -207,17 +210,19 @@ class MixVPR(nn.Module):
 
         fcnum = out_channels * out_rows
 
-        fc1_trans = linear(fcnum, 128)
-        fc2_trans = linear(128,32)
-        fc3_trans = nn.Linear(32,3)
+        #self.linear = linear(fcnum,1536)
+        #fc2_trans = linear(1536,128)
+        #fc3_trans = linear(128,32)
+        #fc4_trans = nn.Linear(32,3)
 
-        fc1_rot = linear(fcnum, 128)
-        fc2_rot = linear(128,32)
-        fc3_rot = nn.Linear(32,3)
+        #self.linear = linear(fcnum,1536)
+        #fc2_rot = linear(1536,128)
+        #fc3_rot = linear(128,32)
+        #fc4_rot = nn.Linear(32,3)
 
 
-        self.voflow_trans = nn.Sequential(fc1_trans, fc2_trans, fc3_trans)
-        self.voflow_rot = nn.Sequential(fc1_rot, fc2_rot, fc3_rot)
+        #self.voflow_trans = nn.Sequential(fc1_trans, fc2_trans, fc3_trans, fc4_trans)
+        #self.voflow_rot = nn.Sequential(fc1_rot, fc2_rot, fc3_rot, fc4_rot)
 
     def _make_layer(self, block, planes, blocks, stride, pad, dilation):
         downsample = None
@@ -245,11 +250,13 @@ class MixVPR(nn.Module):
         x = self.channel_proj(x)
         x = x.permute(0, 2, 1)
         x = self.row_proj(x)
-        x = F.normalize(x.flatten(1), p=2, dim=-1)
 
-        x_trans = self.voflow_trans(x)
-        x_rot = self.voflow_rot(x)
-        return torch.cat((x_trans, x_rot), dim=1)
+        #x = x.view(x.shape[0], -1)
+        x = F.normalize(x.flatten(1), p=2, dim=-1)
+        
+        #x_trans = self.voflow_trans(x)
+        #x_rot = self.voflow_rot(x)
+        return x
 
 
 class VPRPosenet(nn.Module):
@@ -265,9 +272,24 @@ class VPRPosenet(nn.Module):
         super().__init__()
         self.local_layer = VOFlowRes()
         self.global_layer = MixVPR(in_channels, in_h, in_w, out_channels, mix_depth, mlp_ratio, out_rows)
+        fcnum = out_channels * out_rows
+        fc1_trans = linear(fcnum, 128)
+        fc2_trans = linear(128,32)
+        fc3_trans = nn.Linear(32,3)
+
+        fc1_rot = linear(fcnum, 128)
+        fc2_rot = linear(128,32)
+        fc3_rot = nn.Linear(32,3)
+
+
+        self.voflow_trans = nn.Sequential(fc1_trans, fc2_trans, fc3_trans)
+        self.voflow_rot = nn.Sequential(fc1_rot, fc2_rot, fc3_rot)
     
     def forward(self, x):
         x_local = self.local_layer(x)
         x_global = self.global_layer(x)
+        #import pdb; pdb.set_trace()
         x_final = 0.5 * x_local + 0.5 * x_global
-        return x_final
+        x_trans = self.voflow_trans(x_final)
+        x_rot = self.voflow_rot(x_final)
+        return torch.cat((x_trans, x_rot), dim=1)

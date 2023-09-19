@@ -105,7 +105,7 @@ if __name__ == '__main__':
     parser.add_argument('--random-crop-center',  action='store_true', default=False)
     parser.add_argument('--fix-ratio',  action='store_true',  default=False)
     parser.add_argument('--resume-e2e',  action='store_true',  default=False)
-    parser.add_argument('--worker-num', type=int, default=1,
+    parser.add_argument('--worker-num', type=int, default=4,
                         help='data loader worker number (default: 1)')
     parser.add_argument('--lr', type=float, default=1e-4,
                     help='learning rate (default: 3e-4)')
@@ -167,7 +167,7 @@ if __name__ == '__main__':
     #attention_net = GLAM() # 파라미터 입력해야됨
     flownet = build_flowformer(cfg)
     print(colored('==> ', 'blue') + 'Flowformer created.')
-    posenet = VPRPosenet(in_channels=256, in_h=20, in_w=14, out_channels=1024, mix_depth=4, mlp_ratio=1, out_rows=4)
+    posenet = VPRPosenet(in_channels=256, in_h=20, in_w=14, out_channels=256, mix_depth=4, mlp_ratio=1, out_rows=6)
     print(colored('==> ', 'blue') + 'Posenet created.')    
     #vpr_net = get_aggregator(agg_arch, agg_config)
     #scd_net = TANet(self.args.encoder_arch, self.args.local_kernel_size, self.args.attn_stride,
