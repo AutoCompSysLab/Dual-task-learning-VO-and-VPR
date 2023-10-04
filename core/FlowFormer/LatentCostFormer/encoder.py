@@ -334,35 +334,38 @@ class MemoryEncoder(nn.Module):
 
         return corr
 
-    def forward(self, img1, img2, data, context=None):
+    def forward(self, stage, data=None, img1=None, img2=None, vpr_img=None, context=None):
         # The original implementation
         # feat_s = self.feat_encoder(img1)
         # feat_t = self.feat_encoder(img2)
         # feat_s = self.channel_convertor(feat_s)
         # feat_t = self.channel_convertor(feat_t)
+        if stage == 'vpr':
+            vpr_feature=self.feat_encoder(vpr_img)
+            return vpr_feature
+        else:
+            imgs = torch.cat([img1, img2], dim=0)
+            feats = self.feat_encoder(imgs)
+            feats = self.channel_convertor(feats)
+            B = feats.shape[0] // 2
 
-        imgs = torch.cat([img1, img2], dim=0)
-        feats = self.feat_encoder(imgs)
-        feats = self.channel_convertor(feats)
-        B = feats.shape[0] // 2
+            feat_s = feats[:B]
+            feat_t = feats[B:]
 
-        feat_s = feats[:B]
-        feat_t = feats[B:]
+            B, C, H, W = feat_s.shape
+            size = (H, W)
 
-        B, C, H, W = feat_s.shape
-        size = (H, W)
+            if self.cfg.feat_cross_attn:
+                feat_s = feat_s.flatten(2).transpose(1, 2)
+                feat_t = feat_t.flatten(2).transpose(1, 2)
 
-        if self.cfg.feat_cross_attn:
-            feat_s = feat_s.flatten(2).transpose(1, 2)
-            feat_t = feat_t.flatten(2).transpose(1, 2)
+                for layer in self.layers:
+                    feat_s, feat_t = layer(feat_s, feat_t, size)
 
-            for layer in self.layers:
-                feat_s, feat_t = layer(feat_s, feat_t, size)
+                feat_s = feat_s.reshape(B, *size, -1).permute(0, 3, 1, 2).contiguous()
+                feat_t = feat_t.reshape(B, *size, -1).permute(0, 3, 1, 2).contiguous()
 
-            feat_s = feat_s.reshape(B, *size, -1).permute(0, 3, 1, 2).contiguous()
-            feat_t = feat_t.reshape(B, *size, -1).permute(0, 3, 1, 2).contiguous()
+            cost_volume = self.corr(feat_s, feat_t)
+            x = self.cost_perceiver_encoder(cost_volume, data, context)
+            return x
 
-        cost_volume = self.corr(feat_s, feat_t)
-        x = self.cost_perceiver_encoder(cost_volume, data, context)
-
-        return x

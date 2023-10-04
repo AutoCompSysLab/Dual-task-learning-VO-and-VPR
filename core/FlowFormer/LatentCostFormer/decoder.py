@@ -257,4 +257,4 @@ class MemoryDecoder(nn.Module):
         if self.training:
             return flow_predictions
         else:
-            return flow_predictions[-1], coords1-coords0
+            return flow_predictions

@@ -144,7 +144,7 @@ if __name__ == "__main__":
     
     flownet = build_flowformer(cfg)
     print(colored('==> ', 'blue') + 'Flowformer created.')
-    posenet = VPRPosenet(in_channels=256, in_h=20, in_w=14, out_channels=1024, mix_depth=4, mlp_ratio=1, out_rows=4)
+    posenet = VPRPosenet(in_channels=256, in_h=40, in_w=40, out_channels=256, mix_depth=4, mlp_ratio=1, out_rows=9)
     print(colored('==> ', 'blue') + 'Posenet created.')    
 
     if args.pretrained_flownet:

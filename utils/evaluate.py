@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from utils.io import writeFlow
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def epe(input_flow, target_flow, mean=True):
@@ -211,10 +212,24 @@ def test(flownet, posenet, motionlist,
         pbar = tqdm(enumerate(test_loader), total=len(test_loader))
 
         for i, mini_batch in pbar:
-            source_image, target_image = pre_process_data(
-                mini_batch['source_image'],
-                mini_batch['target_image'],
-                device=device)
+            source_image, target_image = pre_process_data(mini_batch['source_image'],
+                                                        mini_batch['target_image'],
+                                                        device=device)
+            #intrinsic, flow, mask = None, None, None
+            intrinsic = mini_batch['intrinsic'].float().to(device)
+            #flow = mini_batch['flow'].float().to(device)
+            bs, _, h_original, w_original = intrinsic.shape
+            '''
+            flow = F.interpolate(flow, (640, 640),
+                                        mode='bilinear', align_corners=False)
+            flow[:, 0, :, :] *= 640.0 / float(w_original)
+            flow[:, 1, :, :] *= 640.0 / float(h_original)
+            '''
+            intrinsic = F.interpolate(intrinsic, (640, 640),
+                                        mode='bilinear', align_corners=False)
+            intrinsic[:, 0, :, :] *= 640.0 / float(w_original)
+            intrinsic[:, 1, :, :] *= 640.0 / float(h_original)
+
             '''
             #TartanAir
             output_net_256, output_net_original = flownet(source_image, target_image, source_image_256, target_image_256)
@@ -222,12 +237,14 @@ def test(flownet, posenet, motionlist,
             #pose net
             flow_scale = 20.0
             '''
-            intrinsic = mini_batch['intrinsic'].float().to(device)
-            flow_output = flownet(source_image, target_image)
+            #intrinsic = mini_batch['intrinsic'].float().to(device)
+            #flow_output = flownet(source_image, target_image)
+            flow_output = flownet(stage='vo', image1=source_image, image2=target_image)            
             #import pdb; pdb.set_trace()
             flow_scale = 20.0
-            flow_input = flow_output[0].clone()/flow_scale
-            pose_output = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))  
+            flow_input = flow_output[-1].clone()/flow_scale
+            #pose_output = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))  
+            pose_output = posenet(stage='vo', x=torch.cat((flow_input, intrinsic),1))
             #flow_output, pose_output = vonet([target_image, source_image, intrinsic])
             #flow_output, pose_output = vonet([source_image, target_image, intrinsic])
             
@@ -275,13 +292,28 @@ def pre_process_data(source_img, target_img, device):
     b, _, h_scale, w_scale = target_img.shape
     mean_vector = np.array([0.485, 0.456, 0.406])
     std_vector = np.array([0.229, 0.224, 0.225])
-
+    
     # original resolution
     source_img_copy = source_img.float().to(device).div(255.0)
     target_img_copy = target_img.float().to(device).div(255.0)
+    
     mean = torch.as_tensor(mean_vector, dtype=source_img_copy.dtype, device=source_img_copy.device)
     std = torch.as_tensor(std_vector, dtype=source_img_copy.dtype, device=source_img_copy.device)
+    '''
     source_img_copy.sub_(mean[:, None, None]).div_(std[:, None, None])
     target_img_copy.sub_(mean[:, None, None]).div_(std[:, None, None])
+    '''
+    # resolution 256x256
+    source_img_640 = torch.nn.functional.interpolate(input=source_img.float().to(device),
+                                                      size=(640, 640),
+                                                      mode='area').byte()
+    target_img_640 = torch.nn.functional.interpolate(input=target_img.float().to(device),
+                                                      size=(640, 640),
+                                                      mode='area').byte()
 
-    return source_img_copy, target_img_copy
+    source_img_640 = source_img_640.float().div(255.0)
+    target_img_640 = target_img_640.float().div(255.0)
+    source_img_640.sub_(mean[:, None, None]).div_(std[:, None, None])
+    target_img_640.sub_(mean[:, None, None]).div_(std[:, None, None])
+
+    return source_img_640, target_img_640

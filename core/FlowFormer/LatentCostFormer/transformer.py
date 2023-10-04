@@ -29,20 +29,26 @@ class FlowFormer(nn.Module):
             self.context_encoder = BasicEncoder(output_dim=256, norm_fn='instance')
 
 
-    def forward(self, image1, image2, output=None, flow_init=None):
+    def forward(self, stage, image1=None, image2=None, vpr_img=None, output=None, flow_init=None):
         # Following https://github.com/princeton-vl/RAFT/
-        image1 = 2 * (image1 / 255.0) - 1.0
-        image2 = 2 * (image2 / 255.0) - 1.0
-
-        data = {}
-
-        if self.cfg.context_concat:
-            context = self.context_encoder(torch.cat([image1, image2], dim=1))
+        if stage == 'vpr':
+            vpr_feature = self.memory_encoder(stage, vpr_img=vpr_img)
+            return vpr_feature
         else:
-            context = self.context_encoder(image1)
+            image1 = 2 * (image1 / 255.0) - 1.0
+            image2 = 2 * (image2 / 255.0) - 1.0
+
+            data = {}
+
+            if self.cfg.context_concat:
+                context = self.context_encoder(torch.cat([image1, image2], dim=1))
+            else:
+                context = self.context_encoder(image1)
+                
+            cost_memory = self.memory_encoder(stage, img1=image1, img2=image2, data=data, context=context)
+
+            flow_predictions = self.memory_decoder(cost_memory, context, data, flow_init=flow_init)
             
-        cost_memory = self.memory_encoder(image1, image2, data, context)
+            return flow_predictions
 
-        flow_predictions = self.memory_decoder(cost_memory, context, data, flow_init=flow_init)
 
-        return flow_predictions
