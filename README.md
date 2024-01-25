@@ -31,10 +31,10 @@ python test_vpr.py --pretrained_flownet PATH/TO/PRETRAINED_FLOW_NETWORK --pretra
 
 ## Acknowledgements
 Our code is implemented utillizing part of codes in:
-[TartanVO](https://github.com/castacks/tartanvo.git)
-[Compass](https://github.com/microsoft/COMPASS.git)
-[Flowformer](https://github.com/drinkingcoder/FlowFormer-Official.git)
-[MixVPR](https://github.com/amaralibey/MixVPR.git)
+- [TartanVO](https://github.com/castacks/tartanvo.git)
+- [Compass](https://github.com/microsoft/COMPASS.git)
+- [Flowformer](https://github.com/drinkingcoder/FlowFormer-Official.git)
+- [MixVPR](https://github.com/amaralibey/MixVPR.git)
 
 ## License
 This software is BSD licensed.
