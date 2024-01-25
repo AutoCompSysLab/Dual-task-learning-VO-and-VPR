@@ -19,15 +19,15 @@ sh test_all_seq.sh
 ```
 
 To test for DynaKITTI test dataset, run following code:
-'''
+```
 python test_kitti.py --evaluation_data_dir --pretrained_flownet PATH/TO/PRETRAINED_FLOW_NETWORK  --pretrained_posenet PATH/TO/PRETRAINED_TRIPLE_HEAD_NETWORK --test_seq TEST_SEQUENCE_NUMBER
-'''
+```
 
 ## Evaluation on VPR task
 
-'''
+```
 python test_vpr.py --pretrained_flownet PATH/TO/PRETRAINED_FLOW_NETWORK --pretrained_posenet PATH/TO/PRETRAINED_TRIPLE_HEAD_NETWORK
-'''
+```
 
 ## Acknowledgements
 Our code is implemented utillizing part of codes in:
