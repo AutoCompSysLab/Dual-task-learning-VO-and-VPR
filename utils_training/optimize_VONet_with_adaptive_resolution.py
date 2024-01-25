@@ -215,11 +215,10 @@ def COMPASS_linear_norm_trans_loss(output, motion, mask=None):
     return loss, trans_loss.item() , rot_loss.item()
 
 
-def train_epoch(flownet,
-                posenet,
+def train_epoch(posenet,
                 optimizer,
                 train_loader,
-                VPR_train_loader,
+                #VPR_train_loader,
                 device,
                 epoch,
                 train_writer,
@@ -253,32 +252,36 @@ def train_epoch(flownet,
         we only use the ground truth flow as highest resolution and downsample it without scaling.
     """
     n_iter = epoch*len(train_loader)
-    flownet.train()
+    #flownet.train()
     posenet.train()
-    running_total_loss_flow = 0
+    #running_total_loss_flow = 0
     running_total_loss_trans = 0
     running_total_loss_rot = 0
     running_total_loss_pose = 0
-    running_total_loss_vpr = 0
-    running_total_batch_acc_vpr = 0
+    #running_total_loss_vpr = 0
+    #running_total_batch_acc_vpr = 0
 
     criterion = nn.L1Loss()
     running_total_loss = 0
 
-    #pbar = tqdm(enumerate(train_loader, VPR_train_loader), total=len(train_loader))
-    pbar_train = tqdm(train_loader)
-    pbar = enumerate(zip(pbar_train, VPR_train_loader))
+    #pbar = tqdm(enumerate(zip(train_loader, VPR_train_loader)), total=len(train_loader))
+    #pbar_train = tqdm(train_loader)
+    #pbar = enumerate(zip(pbar_train, VPR_train_loader))
+    pbar = tqdm(enumerate(train_loader), total=len(train_loader))
     for i, mini_batch in pbar:
         optimizer.zero_grad()
         #import pdb; pdb.set_trace()
         # pre-process the data
         #import pdb; pdb.set_trace()
+        '''
         source_image, target_image = pre_process_data(mini_batch[0]['source_image'],
                                                       mini_batch[0]['target_image'],
                                                       device=device)
         #intrinsic, flow, mask = None, None, None
-        intrinsic = mini_batch[0]['intrinsic'].float().to(device)
-        flow = mini_batch[0]['flow'].float().to(device)
+        '''
+        intrinsic = mini_batch['intrinsic'].float().to(device)
+        
+        flow = mini_batch['flow'].float().to(device)
         bs, _, h_original, w_original = flow.shape
         flow = F.interpolate(flow, (640, 640),
                                     mode='bilinear', align_corners=False)
@@ -288,36 +291,41 @@ def train_epoch(flownet,
                                     mode='bilinear', align_corners=False)
         intrinsic[:, 0, :, :] *= 640.0 / float(w_original)
         intrinsic[:, 1, :, :] *= 640.0 / float(h_original)
-
+        '''
         places = mini_batch[1][0]
         labels = mini_batch[1][1]
         BS, N, ch, h, w = places.shape
         images = places.view(BS*N, ch, h, w)
-        labels = labels.view(-1)        
+        labels = labels.view(-1)
+        '''
         #import pdb; pdb.set_trace()
-        flow_output = flownet(stage='vo', image1=source_image, image2=target_image)
+        #flow_output = flownet(stage='vo', image1=source_image, image2=target_image)
         #import pdb; pdb.set_trace()
         flow_scale = 20.0
-        flow_input = flow_output[-1].clone()/flow_scale
+        flow_input = flow.clone()/flow_scale
+        #flow_input = flow_output[-1].clone()/flow_scale
+        #flow_input = flow.clone()
+        #flow_input = flow_input.clone()/flow_scale
         pose_output = posenet(stage='vo', x=torch.cat((flow_input, intrinsic),1))
-        features = flownet(stage='vpr', vpr_img=images)
-        descriptors = posenet(stage='vpr', vpr_feature=features)
-
-
+        #features = flownet(stage='vpr', vpr_img=images)
+        #descriptors = posenet(stage='vpr', vpr_feature=features)
 
         #flow_output, pose_output = net([target_image, source_image, intrinsic])
         pose_output_np = pose_output.data.cpu().detach().numpy().squeeze()
         # calculate flow loss
+        '''
         valid = None
+        
         if flow is not None:
             #flowloss = net.module.vonet.get_flow_loss(flow_output, flow, criterion, mask=mask, training = True, small_scale=True)
             flowloss, metrics = sequence_loss(flow_output, flow, valid, cfg)
         else:
             flowloss = torch.FloatTensor([0])
+        '''
         
         #flow_scale = 140.0
 
-        motion_gt = mini_batch[0]['motion'].float()
+        motion_gt = mini_batch['motion'].float()
     
         pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)
         motion_gt = motion_gt / pose_std
@@ -328,7 +336,7 @@ def train_epoch(flownet,
         motion_gt = motion_gt.to(device)
         #poseloss, trans_loss, rot_loss = COMPASS_linear_norm_trans_loss(pose_output, motion_gt)
         poseloss, trans_loss, rot_loss = linear_norm_trans_loss(pose_output, motion_gt)
-
+        '''
         vpr_loss_func = get_loss('MultiSimilarityLoss')
         vpr_miner = get_miner('MultiSimilarityMiner', 0.1)
         
@@ -338,26 +346,30 @@ def train_epoch(flownet,
         nb_samples = descriptors.shape[0]
         nb_mined = len(set(miner_outputs[0].detach().cpu().numpy()))
         batch_acc = 1.0 - (nb_mined/nb_samples)
-
-        Loss = flowloss/flow_scale + poseloss + vpr_loss
-        #Loss = poseloss
+        '''
+        #Loss = flowloss/flow_scale + poseloss + vpr_loss
+        Loss = poseloss
         Loss.backward()
         optimizer.step()
         n_iter += 1
         running_total_loss_pose += poseloss.item()
-        running_total_loss_flow += flowloss.item()
-        running_total_loss_vpr += vpr_loss.item()
-        running_total_batch_acc_vpr += batch_acc
+        #running_total_loss_flow += flowloss.item()
+        #running_total_loss_vpr += vpr_loss.item()
+        #running_total_batch_acc_vpr += batch_acc
+        '''
         pbar_train.set_description(
             'train R_total_loss: %.3f/%.3f/%.3f/%.3f/%.3f/%.3f/%.3f/%.3f' % (running_total_loss_flow / (i + 1), flowloss.item(),
                                                             running_total_loss_pose / (i + 1), poseloss.item(),
                                                             running_total_loss_vpr / (i + 1), vpr_loss.item(),
                                                             running_total_batch_acc_vpr / (i+1), batch_acc))
-    
-    running_total_loss_flow /= len(train_loader)
+        '''
+        pbar.set_description(
+            'train R_total_loss: %.3f/%.3f' % (running_total_loss_pose / (i + 1), poseloss.item()))
+        
+    #running_total_loss_flow /= len(train_loader)
     running_total_loss_pose /= len(train_loader)
-    running_total_loss_vpr /= len(train_loader)
-    running_total_batch_acc_vpr /= len(train_loader)    
+    #running_total_loss_vpr /= len(train_loader)
+    #running_total_batch_acc_vpr /= len(train_loader)    
     
     ##only for last batch
     motionnp = pose_output.clone().cpu().detach().numpy()
@@ -379,7 +391,7 @@ def train_epoch(flownet,
     ate_score, gt_ate_aligned, est_ate_aligned = ate_eval.evaluate(gt_traj, est_traj, True)
     plot_traj_3d(gt_ate_aligned, est_ate_aligned, vis=False, savefigname=results_dir+'/train_traj_epoch_{}'.format(epoch)+'.png', title='ATE %.4f' %(ate_score))
 
-    return running_total_loss_flow, running_total_loss_pose, running_total_loss_vpr, running_total_batch_acc_vpr, ate_score
+    return running_total_loss_pose, ate_score
 
 
 def validate_epoch(flownet,

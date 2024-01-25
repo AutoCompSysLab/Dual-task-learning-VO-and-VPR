@@ -311,15 +311,16 @@ def dataset_intrinsics(dataset='tartanair'):
     return focalx, focaly, centerx, centery
 
 from mpl_toolkits.mplot3d import axes3d
-def plot_traj_3d(gtposes, estposes, vis=False, savefigname=None, title=''):
+def plot_traj_3d(gtposes, estposes, baselineposes, vis=False, savefigname=None, title=''):
     fig = plt.figure(figsize=(4,4))
     cm = plt.cm.get_cmap('Spectral')
     ax = fig.add_subplot(111, projection='3d')
 
     ax.plot(gtposes[:,0],gtposes[:,1], gtposes[:,2], linestyle='dashed',c='k')
+    ax.plot(baselineposes[:, 0], baselineposes[:, 1], baselineposes[:, 2],c='#1f77b4')
     ax.plot(estposes[:, 0], estposes[:, 1], estposes[:, 2],c='#ff7f0e')
-    ax.legend(['Ground Truth','TartanVO'])
-    #ax.title(title)
+    ax.legend(['Ground Truth', 'TartanVO', 'Ours'])
+    ax.set_title(title)
     if savefigname is not None:
         plt.savefig(savefigname)
     if vis:
@@ -327,16 +328,17 @@ def plot_traj_3d(gtposes, estposes, vis=False, savefigname=None, title=''):
     plt.close(fig)
 
 
-def plot_traj(gtposes, estposes, vis=False, savefigname=None, title=''):
+def plot_traj(gtposes, estposes, baselineposes, vis=False, savefigname=None, title=''):
     fig = plt.figure(figsize=(4,4))
     cm = plt.cm.get_cmap('Spectral')
 
     plt.subplot(111)
     plt.plot(gtposes[:,0],gtposes[:,1], linestyle='dashed',c='k')
+    plt.plot(baselineposes[:, 0], baselineposes[:, 1],c='#1f77b4')
     plt.plot(estposes[:, 0], estposes[:, 1],c='#ff7f0e')
     plt.xlabel('x (m)')
     plt.ylabel('y (m)')
-    plt.legend(['Ground Truth','TartanVO'])
+    plt.legend(['Ground Truth', 'TartanVO', 'Ours'])
     plt.title(title)
     if savefigname is not None:
         plt.savefig(savefigname)
@@ -392,6 +394,36 @@ def generate_random_scale_crop(h, w, target_h, target_w, scale_base, keep_center
 
     return scale_w, scale_h, x1, y1, crop_w, crop_h
 
+class ResizeData(object):
+    """Resize the data in a dict
+    """
+
+    def __init__(self, size):
+        if isinstance(size, numbers.Number):
+            self.size = (int(size), int(size))
+        else:
+            self.size = size
+
+    def __call__(self, sample):
+        kks = list(sample.keys())
+        th, tw = self.size
+        h, w = sample[kks[0]].shape[0], sample[kks[0]].shape[1]
+        if w == tw and h == th:
+            return sample
+        scale_w = float(tw)/w
+        scale_h = float(th)/h
+
+        for kk in kks:
+            if sample[kk] is None:
+                continue
+            sample[kk] = cv2.resize(sample[kk], (tw,th), interpolation=cv2.INTER_LINEAR)
+
+        if 'flow' in sample:
+            sample['flow'][...,0] = sample['flow'][...,0] * scale_w
+            sample['flow'][...,1] = sample['flow'][...,1] * scale_h
+
+        return sample
+        
 class RandomResizeCrop(object):
     """
     Random scale to cover continuous focal length

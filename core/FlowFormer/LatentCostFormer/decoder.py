@@ -11,7 +11,7 @@ from einops import rearrange
 from core.utils.utils import coords_grid, bilinear_sampler, upflow8
 from .attention import MultiHeadAttention, LinearPositionEmbeddingSine, ExpPositionEmbeddingSine
 from typing import Optional, Tuple
-
+from .twins import Size_, PosConv
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 from .gru import BasicUpdateBlock, GMAUpdateBlock
@@ -25,6 +25,206 @@ def initialize_flow(img):
 
     # optical flow computed as difference: flow = mean1 - mean0
     return mean, mean_init
+
+class LocallyGroupedAttn(nn.Module):
+    """ LSA: self attention within a group
+    """
+    def __init__(self, dim, num_heads=8, attn_drop=0., proj_drop=0., wsh=1, wsw=1):
+        #assert ws != 1
+        super(LocallyGroupedAttn, self).__init__()
+        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+        self.qkv = nn.Linear(dim, dim * 3, bias=True)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.wsh = wsh
+        self.wsw = wsw
+
+        self.ffn = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Dropout(proj_drop),
+            nn.Linear(dim, dim),
+            nn.Dropout(proj_drop)
+        )
+
+    def forward(self, x, size: Size_):
+        # There are two implementations for this function, zero padding or mask. We don't observe obvious difference for
+        # both. You can choose any one, we recommend forward_padding because it's neat. However,
+        # the masking implementation is more reasonable and accurate.
+        B, N, C = x.shape
+
+        short_cut = x
+        x = self.norm1(x)
+        H, W = size
+        x = x.view(B, H, W, C)
+        pad_l = pad_t = 0
+        pad_r = (self.wsw - W % self.wsw) % self.wsw
+        pad_b = (self.wsh - H % self.wsh) % self.wsh
+        x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b))
+        _, Hp, Wp, _ = x.shape
+        _h, _w = Hp // self.wsh, Wp // self.wsw
+        x = x.reshape(B, _h, self.wsh, _w, self.wsw, C).transpose(2, 3)
+        qkv = self.qkv(x).reshape(
+            B, _h * _w, self.wsh * self.wsw, 3, self.num_heads, C // self.num_heads).permute(3, 0, 1, 4, 2, 5)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        attn = (attn @ v).transpose(2, 3).reshape(B, _h, _w, self.wsh, self.wsw, C)
+        x = attn.transpose(2, 3).reshape(B, _h * self.wsh, _w * self.wsw, C)
+        if pad_r > 0 or pad_b > 0:
+            x = x[:, :H, :W, :].contiguous()
+        x = x.reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        x = short_cut + x
+
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+class CrossGlobalSubSampleAttn(nn.Module):
+    """ GSA: using a  key to summarize the information for a group to be efficient.
+    """
+    def __init__(self, dim, tgt_token_dim, add_flow_token=True, num_heads=8, attn_drop=0., proj_drop=0., sr_ratio=1, pe='linear'):
+        super().__init__()
+        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+        self.pe = pe
+
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+        self.q = nn.Linear(dim, dim, bias=True)
+        self.kv = nn.Linear(tgt_token_dim, tgt_token_dim, bias=True)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        self.ffn = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Dropout(proj_drop),
+            nn.Linear(dim, dim),
+            nn.Dropout(proj_drop)
+        )
+
+        self.sr_ratio = sr_ratio
+        if sr_ratio > 1:
+            self.sr = nn.Conv2d(tgt_token_dim, tgt_token_dim, kernel_size=sr_ratio, stride=sr_ratio)
+            self.norm = nn.LayerNorm(tgt_token_dim)
+        else:
+            self.sr = None
+            self.norm = None
+
+        self.add_flow_token = add_flow_token
+    def forward(self, query, key, value, memory, query_coord, patch_size, size_h3w3, size: Size_):
+        #B, N, C = x.shape
+        #B1, N1, C1 = tgt.shape
+        #short_cut = x
+        #x = self.norm1(x)
+        #print(tgt.shape)
+        #q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+        #print(size)
+        B, _, H1, W1 = query_coord.shape
+        B1, N1, C1 = query.shape
+        B2, N2, C2 = memory.shape
+        # [B, 2, H1, W1] -> [BH1W1, 1, 2]
+        query_coord = query_coord.contiguous()
+        query_coord = query_coord.view(B, 2, -1).permute(0, 2, 1)[:,:,None,:].contiguous().view(B*H1*W1, 1, 2)
+        if self.pe == 'linear':
+            query_coord_enc = LinearPositionEmbeddingSine(query_coord, dim=self.dim)
+        elif self.pe == 'exp':
+            query_coord_enc = ExpPositionEmbeddingSine(query_coord, dim=self.dim)
+
+        short_cut = query
+        query = self.norm1(query)
+        if self.add_flow_token:
+            q = self.q(query+query_coord_enc)
+        else:
+            q = self.q(query_coord_enc)
+        q = q.reshape(B1, N1, self.num_heads, C1 // self.num_heads).permute(0, 2, 1, 3)
+        if self.sr is not None:
+            #print(tgt.shape)
+            memory = memory.permute(0, 2, 1).reshape(B2, C2, *size)
+            #tgt = tgt.reshape(B, C, *size)
+            memory = self.sr(memory).reshape(B2, C2, -1).permute(0, 2, 1)
+            memory = self.norm(memory)
+        kv = self.kv(memory).reshape(B2, -1, 2, self.num_heads, (C2 // 2) // self.num_heads).permute(2, 0, 3, 1, 4)
+        k, v = kv[0], kv[1]
+        #print(q.shape, k.shape)
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B2, N1, C1)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        x = short_cut + x
+
+        x = x + self.ffn(self.norm2(x))
+
+        return x, k, v
+
+class GlobalSubSampleAttn(nn.Module):
+    """ GSA: using a  key to summarize the information for a group to be efficient.
+    """
+    def __init__(self, dim, num_heads=8, attn_drop=0., proj_drop=0., sr_ratio=1):
+        super().__init__()
+        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.q = nn.Linear(dim, dim, bias=True)
+        self.kv = nn.Linear(dim, dim * 2, bias=True)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        self.sr_ratio = sr_ratio
+        if sr_ratio > 1:
+            self.sr = nn.Conv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio)
+            self.norm = nn.LayerNorm(dim)
+        else:
+            self.sr = None
+            self.norm = None
+
+    def forward(self, x, size: Size_):
+        #B, N, C = x.shape
+        B, C, N = x.shape
+        #print(x.shape)
+        q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+
+        if self.sr is not None:
+            x = x.permute(0, 2, 1).reshape(B, C, *size)
+            x = self.sr(x).reshape(B, C, -1).permute(0, 2, 1)
+            x = self.norm(x)
+        kv = self.kv(x).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        k, v = kv[0], kv[1]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        return x
 
 class CrossAttentionLayer(nn.Module):
     # def __init__(self, dim, cfg, num_heads=8, attn_drop=0., proj_drop=0., drop_path=0., dropout=0.):
@@ -98,8 +298,8 @@ class MemoryDecoderLayer(nn.Module):
 
         query_token_dim, tgt_token_dim = cfg.query_latent_dim, cfg.cost_latent_dim
         qk_dim, v_dim = query_token_dim, query_token_dim
-        self.cross_attend = CrossAttentionLayer(qk_dim, v_dim, query_token_dim, tgt_token_dim, add_flow_token=cfg.add_flow_token, dropout=cfg.dropout)
-
+        #self.cross_attend = CrossAttentionLayer(qk_dim, v_dim, query_token_dim, tgt_token_dim, add_flow_token=cfg.add_flow_token, dropout=cfg.dropout)
+        self.cross_attend_global = CrossGlobalSubSampleAttn(qk_dim, tgt_token_dim, add_flow_token=cfg.add_flow_token, sr_ratio=2)
     def forward(self, query, key, value, memory, coords1, size, size_h3w3):
         """
             x:      [B*H1*W1, 1, C]
@@ -110,7 +310,8 @@ class MemoryDecoderLayer(nn.Module):
                Should first convert it into H2', W2' space.
             2. We assume the upper-left point to be [0, 0], instead of letting center of upper-left patch to be [0, 0]
         """
-        x_global, k, v = self.cross_attend(query, key, value, memory, coords1, self.patch_size, size_h3w3)
+        #x_global, k, v = self.cross_attend(query, key, value, memory, coords1, self.patch_size, size_h3w3)
+        x_global, k, v = self.cross_attend_global(query, key, value, memory, coords1, self.patch_size, size_h3w3, (4, 2))
         B, C, H1, W1 = size
         C = self.cfg.query_latent_dim
         x_global = x_global.view(B, H1, W1, C).permute(0, 3, 1, 2)
@@ -162,7 +363,7 @@ class MemoryDecoder(nn.Module):
         self.proj = nn.Conv2d(256, 256, 1)
         self.depth = cfg.decoder_depth
         self.decoder_layer = MemoryDecoderLayer(dim, cfg)
-        
+        self.input_layer_local = LocallyGroupedAttn(self.cfg.cost_latent_dim, wsh=4, wsw=2)
         if self.cfg.gma:
             self.update_block = GMAUpdateBlock(self.cfg, hidden_dim=128)
             self.att = Attention(args=self.cfg, dim=128, heads=1, max_pos_size=160, dim_head=128)
@@ -227,7 +428,8 @@ class MemoryDecoder(nn.Module):
 
         size = net.shape
         key, value = None, None
-
+        #print(cost_memory.shape)
+        cost_memory = self.input_layer_local(cost_memory, (4, 2))
         for idx in range(self.depth):
             coords1 = coords1.detach()
 

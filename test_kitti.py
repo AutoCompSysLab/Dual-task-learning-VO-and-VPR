@@ -14,13 +14,15 @@ import torchvision.transforms as transforms
 import torch.optim.lr_scheduler as lr_scheduler
 from Datasets.ChangeAir_cvpr import Changeair_cvpr_Dataset
 from Datasets.TartanAir_cvpr import Tartanair_cvpr_Dataset
-from Datasets.TartanAir import Tartanair_TestDataset, Tartanair_TrainigDataset
+#from Datasets.Euroc import Euroc_Dataset
+from Datasets.Kitti import Kitti_Dataset
+from Datasets.TartanAir import Tartanair_TestDataset
 #from TartanVO import TartanVO
 from utils_training.utils_CNN import load_checkpoint, save_checkpoint, boolean_string
 from utils_training.utils_load_model import load_model
 from tensorboardX import SummaryWriter
 
-from utils.image_transforms import ArrayToTensor, ToTensor, Compose, CropCenter, dataset_intrinsics, DownscaleFlow, plot_traj, visflow, plot_traj_3d, RandomCropandResize, RandomResizeCrop
+from utils.image_transforms import ArrayToTensor, ToTensor, Compose, CropCenter, dataset_intrinsics, DownscaleFlow, plot_traj, visflow, plot_traj, plot_traj_3d, RandomCropandResize, RandomResizeCrop, ResizeData, load_kiiti_intrinsics
 from itertools import chain
 from evaluator.tartanair_evaluator import TartanAirEvaluator
 from Datasets.transformation import ses2poses_quat
@@ -63,6 +65,10 @@ if __name__ == "__main__":
                        help='path to pre-trained posenet model')
     parser.add_argument('--pretrained_model', dest='pretrained_model', default=None,
                        help='path to pre-trained vo model')
+    parser.add_argument('--align', type=str, 
+                        choices=['scale', 'scale_7dof', '7dof', '6dof'],
+                        default=None,
+                        help="alignment type")
 
     # Optimization parameters
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
@@ -73,7 +79,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_epoch', type=int, default=100,
                         help='number of training epochs')
     parser.add_argument('--test_seq',  type=str, default='MH001')
-    parser.add_argument('--batch-size', type=int, default=1,
+    parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size')
     parser.add_argument('--n_threads', type=int, default=8,
                         help='number of parallel threads for dataloaders')
@@ -103,9 +109,12 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # datasets, pre-processing of the images is done within the network function !
+    kitti_intrinsics_file = os.path.join(args.evaluation_data_dir, args.test_seq, 'calib.txt')
+    focalx, focaly, centerx, centery = load_kiiti_intrinsics(kitti_intrinsics_file)
     source_img_transforms = transforms.Compose([ArrayToTensor(get_float=False)])
     target_img_transforms = transforms.Compose([ArrayToTensor(get_float=False)])
-    valid_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()]) #only when valid
+    #valid_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()]) #only when valid
+    valid_transform = Compose([ResizeData((args.image_height, 1226)), CropCenter((args.image_height, args.image_width)), ToTensor()])
     #train_transform = Compose([RandomCropandResize((args.image_height, args.image_width), scale=(0.4, 1.0), ratio=(0.5, 2.0)), DownscaleFlow(), ToTensor()])
     train_transform = Compose([RandomResizeCrop((args.image_height, args.image_width), max_scale=2.5, keep_center=args.random_crop_center, fix_ratio=args.fix_ratio), ToTensor()])
     #train_transform = valid_transform
@@ -118,20 +127,13 @@ if __name__ == "__main__":
                                         flow_transform=flow_transform,
                                         co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
                                         focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
-    '''
+    
     test_dataset = Tartanair_cvpr_Dataset(root=args.evaluation_data_dir, test_seq = args.test_seq, 
                                         source_image_transform=source_img_transforms,
                                         target_image_transform=target_img_transforms,
                                         flow_transform=flow_transform,
                                         co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
                                         focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
-    '''
-    test_dataset = Tartanair_TestDataset(root=args.evaluation_data_dir, 
-                                    source_image_transform=source_img_transforms,
-                                    target_image_transform=target_img_transforms,
-                                    flow_transform=flow_transform,
-                                    co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
-                                    focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
     
     test_dataset = Euroc_Dataset(root=args.evaluation_data_dir, test_seq = args.test_seq, 
                                         source_image_transform=source_img_transforms,
@@ -139,14 +141,22 @@ if __name__ == "__main__":
                                         flow_transform=flow_transform,
                                         co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
                                         focalx = 458.6539916992, focaly = 457.2959899902, centerx = 367.2149963379, centery = 248.3750000000)
-    
-    train_dataset, val_dataset = Tartanair_TrainigDataset(root=args.training_data_dir,
+    '''
+    test_dataset = Kitti_Dataset(root=args.evaluation_data_dir, test_seq = args.test_seq, 
+                                        source_image_transform=source_img_transforms,
+                                        target_image_transform=target_img_transforms,
+                                        flow_transform=flow_transform,
+                                        co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
+                                        focalx = focalx, focaly = focaly, centerx = centerx, centery = centery)
+    '''
+    test_dataset = Tartanair_TestDataset(root=args.evaluation_data_dir, 
                                     source_image_transform=source_img_transforms,
                                     target_image_transform=target_img_transforms,
                                     flow_transform=flow_transform,
                                     co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
                                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
     '''
+
     # Dataloader
     test_dataloader = DataLoader(test_dataset,
                                 batch_size=args.batch_size,
@@ -160,6 +170,7 @@ if __name__ == "__main__":
     print(colored('==> ', 'blue') + 'Flowformer created.')
     posenet = VPRPosenet(in_channels=256, in_h=40, in_w=40, out_channels=256, mix_depth=4, mlp_ratio=1, out_rows=9)
     print(colored('==> ', 'blue') + 'Posenet created.')    
+
     if args.pretrained_flownet:
         checkpoint = torch.load(args.pretrained_flownet)
         #flownet.load_state_dict(checkpoint['state_dict'])
@@ -168,13 +179,14 @@ if __name__ == "__main__":
             if k1 in state_dict.keys():
                 state_dict[k1] = checkpoint['state_dict'][k1].to(device)
         flownet.load_state_dict(state_dict)
+        print(colored('==> ', 'blue') + 'flownet loaded.')
         '''
         checkpoint = torch.load(args.pretrained_flownet)
         flownet.load_state_dict(checkpoint['state_dict'])
         '''
         #cur_snapshot = args.name_exp
         
-
+    #import pdb; pdb.set_trace()
     if args.pretrained_posenet:
         checkpoint = torch.load(args.pretrained_posenet)
         state_dict = posenet.state_dict()
@@ -182,6 +194,7 @@ if __name__ == "__main__":
             if k1 in state_dict.keys():
                 state_dict[k1] = checkpoint['state_dict'][k1].to(device)
         posenet.load_state_dict(state_dict)
+        print(colored('==> ', 'blue') + 'posenet loaded.')
     '''
     if args.pretrained_model is not None:
         modelname = args.pretrained_model
@@ -203,17 +216,18 @@ if __name__ == "__main__":
     results_dir = os.path.join(save_path, 'results')
     if not osp.isdir(results_dir):
         os.mkdir(results_dir)
-
+    
     test_motionlist = np.array([])
     test_motionlist = test(flownet, posenet, test_motionlist, 
                    test_dataloader, 
                    device,
-                   cfg,
                    save_path=os.path.join(save_path, 'test'),
                    apply_mask=False,
                    sparse=False)
-
-    gt_pose_file = os.path.join('/home/main/storage/gpuserver00_storage/tartanair_cvpr', 'mono_gt', args.test_seq + '.txt')
+    
+    
+    #gt_pose_file = os.path.join('/home/main/storage/gpuserver00_storage/tartanair_cvpr', 'mono_gt', args.test_seq + '.txt')
+    gt_pose_file = os.path.join('/home/main/datasets/DynaKITTI_clean', args.test_seq, 'pose_left.txt')
     #gt_pose_file = os.path.join('/home/main/storage/gpuserver00_storage/TartanAir/abandonedfactory/abandonedfactory/Easy/P000/pose_left.txt')
     print(gt_pose_file)
     poselist = ses2poses_quat(np.array(test_motionlist))
@@ -223,13 +237,12 @@ if __name__ == "__main__":
         results = evaluator.evaluate_one_trajectory(gt_pose_file, poselist, scale=True, kittitype=False)
 
         print("==> valid ATE: %.4f,\t KITTI-R/t: %.4f, %.4f" %(results['ate_score'], results['kitti_score'][0], results['kitti_score'][1]))
-        baseline = np.loadtxt("/home/main/workspace/jeongwook/Trans_TartanVO_mixvpr_sum_with_VPRdata_new/results/MH007.txt")
 
         # save results and visualization
         epoch=0
-        plot_traj_3d(results['gt_aligned'], results['est_aligned'], baseline, vis=False, savefigname=results_dir+'/traj_epoch_{}'.format(args.test_seq)+'.png', title='{}'.format(args.test_seq))
-        plot_traj(results['gt_aligned'], results['est_aligned'], baseline, vis=False, savefigname=results_dir+'/traj_2D_{}'.format(args.test_seq)+'.png', title='{}'.format(args.test_seq))
+        plot_traj(results['gt_aligned'], results['est_aligned'], vis=False, savefigname=results_dir+'/traj_kitti_{}'.format(epoch)+'.png', title='{}'.format(args.test_seq))
         np.savetxt(results_dir+ '/aligned_estimated_pose_epoch{}'.format(epoch) +'.txt',results['est_aligned'])
         np.savetxt(results_dir+ '/estimated_pose_epoch{}'.format(epoch) +'.txt', poselist)
     else:
         np.savetxt(results_dir+ '/estimated_pose_epoch{}'.format(epoch) +'.txt', poselist)
+    

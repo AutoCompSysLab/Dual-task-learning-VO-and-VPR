@@ -15,7 +15,9 @@ class BroadMultiHeadAttention(nn.Module):
         self.attend = nn.Softmax(dim=-1)
 
     def attend_with_rpe(self, Q, K):
+
         Q = rearrange(Q.squeeze(), 'i (heads d) -> heads i d', heads=self.heads)
+        #print(Q.shape)
         K = rearrange(K, 'b j (heads d) -> b heads j d', heads=self.heads)
 
         dots = einsum('hid, bhjd -> bhij', Q, K) * self.scale # (b hw) heads 1 pointnum
@@ -45,7 +47,6 @@ class MultiHeadAttention(nn.Module):
     def attend_with_rpe(self, Q, K):
         Q = rearrange(Q, 'b i (heads d) -> b heads i d', heads=self.heads)
         K = rearrange(K, 'b j (heads d) -> b heads j d', heads=self.heads)
-
         dots = einsum('bhid, bhjd -> bhij', Q, K) * self.scale # (b hw) heads 1 pointnum
 
         return self.attend(dots)

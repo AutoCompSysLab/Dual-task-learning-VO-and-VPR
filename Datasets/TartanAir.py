@@ -55,6 +55,7 @@ def Tartanair_TrainigDataset(root, source_image_transform=None, target_image_tra
     dir_list = listdir(root)
     #dir_list = ['amusement', 'oldtown', 'neighborhood', 'soulcity', 'japanesealley', 'office', 'office2', 'seasidetown', 'abandonedfactory', 'hospital']
     #dir_list = ['amusement', 'japanesealley', 'abandonedfactory', 'hospital']
+    #dir_list = ['carwelding']
     data_type_list = ['Easy', 'Hard']
 
     train_list = []

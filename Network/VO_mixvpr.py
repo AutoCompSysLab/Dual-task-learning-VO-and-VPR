@@ -286,7 +286,7 @@ class VPRPosenet(nn.Module):
                  ) -> None:
         super().__init__()
         self.local_layer = VOFlowRes()
-        self.global_layer = MixVPR(in_channels, in_h, in_w, out_channels, mix_depth, mlp_ratio, out_rows)
+        #self.global_layer = MixVPR(in_channels, in_h, in_w, out_channels, mix_depth, mlp_ratio, out_rows)
         fcnum = out_channels * out_rows
         fc1_trans = linear(fcnum, 512)
         fc2_trans = linear(512, 128)
@@ -308,9 +308,9 @@ class VPRPosenet(nn.Module):
             return embedding_vector
         else:
             x_local = self.local_layer(x)
-            x_global = self.global_layer(x, stage=stage)
+            #x_global = self.global_layer(x, stage=stage)
             #import pdb; pdb.set_trace()
-            x_final = 0.5 * x_local + 0.5 * x_global
-            x_trans = self.voflow_trans(x_final)
-            x_rot = self.voflow_rot(x_final)
+            #x_final = 0.5 * x_local + 0.5 * x_global
+            x_trans = self.voflow_trans(x_local)
+            x_rot = self.voflow_rot(x_local)
             return torch.cat((x_trans, x_rot), dim=1)

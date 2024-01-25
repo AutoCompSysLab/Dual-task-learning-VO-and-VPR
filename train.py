@@ -95,7 +95,7 @@ if __name__ == '__main__':
                         help='start epoch')
     parser.add_argument('--n_epoch', type=int, default=25,
                         help='number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=4,
+    parser.add_argument('--batch-size', type=int, default=100,
                         help='training batch size')
     parser.add_argument('--n_threads', type=int, default=2,
                         help='number of parallel threads for dataloaders')
@@ -107,7 +107,7 @@ if __name__ == '__main__':
                         help='Pseudo-RNG seed')
     parser.add_argument('--image-width', type=int, default=640,
                         help='image width (default: 640)')
-    parser.add_argument('--image-height', type=int, default=640,
+    parser.add_argument('--image-height', type=int, default=448,
                         help='image height (default: 640)') 
     parser.add_argument('--random-crop-center',  action='store_true', default=False)
     parser.add_argument('--fix-ratio',  action='store_true',  default=False)
@@ -128,7 +128,7 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    
     IMAGENET_MEAN_STD = {'mean': [0.485, 0.456, 0.406], 
                         'std': [0.229, 0.224, 0.225]}
 
@@ -160,13 +160,14 @@ if __name__ == '__main__':
         'Osaka',
         'PRS',
     ]
-
+    
     image_size = (320, 320)
     source_img_transforms = transforms.Compose([ArrayToTensor(get_float=False)])
     target_img_transforms = transforms.Compose([ArrayToTensor(get_float=False)])
     valid_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()]) #only when valid
     train_transform = Compose([RandomResizeCrop((args.image_height, args.image_width), max_scale=2.5, keep_center=args.random_crop_center, fix_ratio=args.fix_ratio), ToTensor()])
     flow_transform = transforms.Compose([ArrayToTensor()])
+    
     VPR_train_transform = transforms.Compose([
         transforms.Resize(image_size, interpolation=transforms.InterpolationMode.BILINEAR),
         transforms.RandAugment(num_ops=3, interpolation=transforms.InterpolationMode.BILINEAR),
@@ -200,7 +201,7 @@ if __name__ == '__main__':
                                     flow_transform=flow_transform,
                                     co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
                                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
-    
+    '''
     VPR_train_dataset = GSVCitiesDataset(
         cities=TRAIN_CITIES,
         img_per_place=args.img_per_place,
@@ -212,19 +213,19 @@ if __name__ == '__main__':
                         input_transform=VPR_valid_transform)
     
     #import pdb; pdb.set_trace()
-
+    '''
     #Dataloader
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, 
-                                        shuffle=True, drop_last=False, pin_memory=True, num_workers=args.worker_num)
+                                        shuffle=True, drop_last=False, pin_memory=True, num_workers=args.worker_num//2)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, 
-                                    shuffle=False, drop_last=False, pin_memory=True, num_workers=args.worker_num//2)
+                                    shuffle=False, drop_last=False, pin_memory=True, num_workers=args.worker_num//4)
 
-
-    VPR_train_dataloader = DataLoader(dataset=VPR_train_dataset, batch_size=4, shuffle=True, drop_last=False, pin_memory=True, num_workers=args.worker_num)
-    
-    VPR_valid_dataloader = DataLoader(dataset=VPR_val_dataset, batch_size=4, shuffle=False, drop_last=False, pin_memory=True, num_workers=args.worker_num//2)
     '''
+    VPR_train_dataloader = DataLoader(dataset=VPR_train_dataset, batch_size=4, shuffle=True, drop_last=False, pin_memory=True, num_workers=args.worker_num//2)
+    
+    VPR_valid_dataloader = DataLoader(dataset=VPR_val_dataset, batch_size=4, shuffle=False, drop_last=False, pin_memory=True, num_workers=args.worker_num//4)
+    
     self.vonet = PretrainedVONet(intrinsic=self.args.intrinsic_layer, 
                         flowNormFactor=1.0, down_scale=args.downscale_flow, 
                         fixflow=args.fix_flow, pretrain=args.pretrain_model_name,
@@ -233,47 +234,52 @@ if __name__ == '__main__':
     # models
     #vonet = TartanVO()
     #attention_net = GLAM() # 파라미터 입력해야됨
-    flownet = build_flowformer(cfg)
-    print(colored('==> ', 'blue') + 'Flowformer created.')
+    #flownet = build_flowformer(cfg)
+    #print(colored('==> ', 'blue') + 'Flowformer created.')
+    #import pdb; pdb.set_trace()
+
+    #target_layer_parameters = model.memory_encoder.cost_perceiver_encoder.input_layer_local.parameters()
+    #total_parameters = sum(p.numel() for p in target_layer_parameters)
+
+    #print("Total Parameters in target layer:", total_parameters)
     posenet = VPRPosenet(in_channels=256, in_h=40, in_w=40, out_channels=256, mix_depth=4, mlp_ratio=1, out_rows=9)
     print(colored('==> ', 'blue') + 'Posenet created.')    
     #vpr_net = get_aggregator(agg_arch, agg_config)
     #scd_net = TANet(self.args.encoder_arch, self.args.local_kernel_size, self.args.attn_stride,
                            #self.args.attn_padding, self.args.attn_groups, self.args.drtam, self.args.refinement)
     #loguru_logger.info("Parameter Count: %d" % count_parameters(model))
-
+    
     if cfg.restore_ckpt is not None:
         print("[Loading ckpt from {}]".format(cfg.restore_ckpt))
         model.load_state_dict(torch.load(cfg.restore_ckpt), strict=True)
-
-
-    '''
+    
     optimizer = \
-        optim.Adam(filter(lambda p: p.requires_grad, chain(flownet.parameters(),posenet.parameters())),
+        optim.Adam(filter(lambda p: p.requires_grad, posenet.parameters()),
                    lr=args.lr,)
                    #weight_decay=args.weight_decay)
     scheduler = lr_scheduler.MultiStepLR(optimizer,
                                          #milestones=[65, 75, 95],
-                                         milestones=[12,
-                                                    21],#e2e 25
+                                         milestones=[12,21],#e2e 25
                                          gamma=0.2)#poselr
     '''
     optimizer = optim.AdamW(chain(flownet.parameters(),posenet.parameters()), lr=cfg.trainer.canonical_lr, weight_decay=cfg.trainer.adamw_decay, eps=cfg.trainer.epsilon)
     scheduler = lr_scheduler.OneCycleLR(optimizer, cfg.trainer.canonical_lr, epochs=25, steps_per_epoch=76567,
                 pct_start=0.05, cycle_momentum=False, anneal_strategy=cfg.trainer.anneal_strategy)
 
-    '''
+    
     # load the whole model
     if args.pretrained_model is not None:
         modelname = args.pretrained_model
         vonet = load_model(vonet, modelname)
     '''
-
+    #import pdb; pdb.set_trace()
     if args.pretrained_flownet:
         checkpoint = torch.load(args.pretrained_flownet)
         #flownet.load_state_dict(checkpoint['state_dict'])
         state_dict = flownet.state_dict()
+        #import pdb; pdb.set_trace()
         for k1 in checkpoint['state_dict'].keys():
+            #k1 = k1[7:]
             if k1 in state_dict.keys():
                 state_dict[k1] = checkpoint['state_dict'][k1].to(device)
         flownet.load_state_dict(state_dict)
@@ -287,11 +293,9 @@ if __name__ == '__main__':
     if args.pretrained_posenet:
         checkpoint = torch.load(args.pretrained_posenet)
         state_dict = posenet.state_dict()
-        for k1 in state_dict.keys():
-            if 'state_dict' in checkpoint.keys():
+        for k1 in checkpoint['state_dict'].keys():
+            if k1 in state_dict.keys():
                 state_dict[k1] = checkpoint['state_dict'][k1].to(device)
-            else:
-                state_dict[k1] = checkpoint['module.flowPoseNet.'+str(k1)].to(device)
         posenet.load_state_dict(state_dict)
     
     if not osp.isdir(args.snapshots):
@@ -312,12 +316,12 @@ if __name__ == '__main__':
     test_writer = SummaryWriter(os.path.join(save_path, 'test'))
 
     #attention_net = nn.DataParallel(attention_net)
-    flownet = nn.DataParallel(flownet)
+    #flownet = nn.DataParallel(flownet)
     posenet = nn.DataParallel(posenet)
     #vpr_net = nn.DataParallel(vpr_net)
     #scd_net = nn.DataParallel(TANet)
     #vonet = nn.DataParallel(vonet)
-    flownet = flownet.to(device)
+    #flownet = flownet.to(device)
     posenet = posenet.to(device)
     train_started = time.time()
     datastr = 'tartanair'
@@ -328,10 +332,10 @@ if __name__ == '__main__':
         if not osp.isdir(results_dir):
             os.mkdir(results_dir)  
         
-        train_loss_flow, train_loss_pose, train_loss_vpr, vpr_batch_acc, train_last_batch_ate = train_epoch(flownet, posenet,
+        train_loss_pose, train_last_batch_ate = train_epoch(posenet,
                                  optimizer,
                                  train_dataloader,
-                                 VPR_train_dataloader,
+                                 #VPR_train_dataloader,
                                  device,
                                  epoch,
                                  train_writer,
@@ -339,14 +343,14 @@ if __name__ == '__main__':
                                  div_flow=args.div_flow,
                                  save_path=os.path.join(save_path, 'train'),
                                  apply_mask=False, results_dir=results_dir)#수정
-        train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
+        #train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
         train_writer.add_scalar('train loss pose', train_loss_pose, epoch)
-        train_writer.add_scalar('train loss vpr', train_loss_vpr, epoch)
-        train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
+        #train_writer.add_scalar('train loss vpr', train_loss_vpr, epoch)
+        #train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
         train_writer.add_scalar('learning_rate', scheduler.get_lr()[0], epoch)
-        print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
+        #print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
         print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
-        print(colored('==> ', 'green') + 'Train average vpr loss:', train_loss_vpr)
+        #print(colored('==> ', 'green') + 'Train average vpr loss:', train_loss_vpr)
         print(colored('==> ', 'green') + 'Train last batch ate:', train_last_batch_ate)  
         '''       
         # Validation
@@ -379,11 +383,6 @@ if __name__ == '__main__':
         best_train = min(train_loss_pose, best_train)
 
         save_checkpoint({'epoch': epoch + 1,
-                         'state_dict': flownet.module.state_dict(),
-                         'optimizer': optimizer.state_dict(),
-                         'scheduler': scheduler.state_dict(),
-                         'best_loss': best_train},
-                         {'epoch': epoch + 1,
                          'state_dict': posenet.module.state_dict(),
                          'optimizer': optimizer.state_dict(),
                          'scheduler': scheduler.state_dict(),

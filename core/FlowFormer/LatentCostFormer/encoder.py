@@ -210,7 +210,6 @@ class CrossAttentionLayer(nn.Module):
         self.norm2 = nn.LayerNorm(query_token_dim)
         self.multi_head_attn = BroadMultiHeadAttention(qk_dim, num_heads)
         self.q, self.k, self.v = nn.Linear(query_token_dim, qk_dim, bias=True), nn.Linear(tgt_token_dim, qk_dim, bias=True), nn.Linear(tgt_token_dim, v_dim, bias=True)
-
         self.proj = nn.Linear(v_dim, query_token_dim)
         self.proj_drop = nn.Dropout(proj_drop)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
@@ -229,7 +228,7 @@ class CrossAttentionLayer(nn.Module):
         """
         short_cut = query
         query = self.norm1(query)
-
+        #print(tgt_token.shape)
         q, k, v = self.q(query), self.k(tgt_token), self.v(tgt_token)
 
         x = self.multi_head_attn(q, k, v)
@@ -240,6 +239,185 @@ class CrossAttentionLayer(nn.Module):
 
         return x
 
+class LocallyGroupedAttn(nn.Module):
+    """ LSA: self attention within a group
+    """
+    def __init__(self, dim, num_heads=8, attn_drop=0., proj_drop=0., ws=1):
+        assert ws != 1
+        super(LocallyGroupedAttn, self).__init__()
+        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+        self.qkv = nn.Linear(dim, dim * 3, bias=True)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.ws = ws
+
+        self.ffn = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Dropout(proj_drop),
+            nn.Linear(dim, dim),
+            nn.Dropout(proj_drop)
+        )
+
+    def forward(self, x, size: Size_):
+        # There are two implementations for this function, zero padding or mask. We don't observe obvious difference for
+        # both. You can choose any one, we recommend forward_padding because it's neat. However,
+        # the masking implementation is more reasonable and accurate.
+        B, N, C = x.shape
+
+        short_cut = x
+        x = self.norm1(x)
+        H, W = size
+        x = x.view(B, H, W, C)
+        pad_l = pad_t = 0
+        pad_r = (self.ws - W % self.ws) % self.ws
+        pad_b = (self.ws - H % self.ws) % self.ws
+        x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b))
+        _, Hp, Wp, _ = x.shape
+        _h, _w = Hp // self.ws, Wp // self.ws
+        x = x.reshape(B, _h, self.ws, _w, self.ws, C).transpose(2, 3)
+        qkv = self.qkv(x).reshape(
+            B, _h * _w, self.ws * self.ws, 3, self.num_heads, C // self.num_heads).permute(3, 0, 1, 4, 2, 5)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        attn = (attn @ v).transpose(2, 3).reshape(B, _h, _w, self.ws, self.ws, C)
+        x = attn.transpose(2, 3).reshape(B, _h * self.ws, _w * self.ws, C)
+        if pad_r > 0 or pad_b > 0:
+            x = x[:, :H, :W, :].contiguous()
+        x = x.reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        x = short_cut + x
+
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+class CrossGlobalSubSampleAttn(nn.Module):
+    """ GSA: using a  key to summarize the information for a group to be efficient.
+    """
+    def __init__(self, dim, num_heads=8, attn_drop=0., proj_drop=0., sr_ratio=1):
+        super().__init__()
+        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+        self.q = nn.Linear(dim, dim, bias=True)
+        self.kv = nn.Linear(dim, dim * 2, bias=True)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        self.ffn = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Dropout(proj_drop),
+            nn.Linear(dim, dim),
+            nn.Dropout(proj_drop)
+        )
+
+        self.sr_ratio = sr_ratio
+        if sr_ratio > 1:
+            self.sr = nn.Conv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio)
+            self.norm = nn.LayerNorm(dim)
+        else:
+            self.sr = None
+            self.norm = None
+
+    def forward(self, x, tgt, size: Size_):
+        B, N, C = x.shape
+        B1, N1, C1 = tgt.shape
+        #print(C, C1)
+        short_cut = x
+        x = self.norm1(x)
+        #print(tgt.shape)
+        q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+        #print(size)
+        if self.sr is not None:
+            #print(tgt.shape)
+            tgt = tgt.permute(0, 2, 1).reshape(B1, C1, *size)
+            #tgt = tgt.reshape(B, C, *size)
+            tgt = self.sr(tgt).reshape(B1, C1, -1).permute(0, 2, 1)
+            tgt = self.norm(tgt)
+        kv = self.kv(tgt).reshape(B1, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        k, v = kv[0], kv[1]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B1, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        x = short_cut + x
+
+        x = x + self.ffn(self.norm2(x))
+
+        return x
+
+class GlobalSubSampleAttn(nn.Module):
+    """ GSA: using a  key to summarize the information for a group to be efficient.
+    """
+    def __init__(self, dim, num_heads=8, attn_drop=0., proj_drop=0., sr_ratio=1):
+        super().__init__()
+        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.q = nn.Linear(dim, dim, bias=True)
+        self.kv = nn.Linear(dim, dim * 2, bias=True)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        self.sr_ratio = sr_ratio
+        if sr_ratio > 1:
+            self.sr = nn.Conv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio)
+            self.norm = nn.LayerNorm(dim)
+        else:
+            self.sr = None
+            self.norm = None
+
+    def forward(self, x, size: Size_):
+        #B, N, C = x.shape
+        B, C, N = x.shape
+        #print(x.shape)
+        q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+
+        if self.sr is not None:
+            x = x.permute(0, 2, 1).reshape(B, C, *size)
+            x = self.sr(x).reshape(B, C, -1).permute(0, 2, 1)
+            x = self.norm(x)
+        kv = self.kv(x).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        k, v = kv[0], kv[1]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        return x
 
 class CostPerceiverEncoder(nn.Module):
     def __init__(self, cfg):
@@ -254,8 +432,11 @@ class CostPerceiverEncoder(nn.Module):
 
         query_token_dim, tgt_token_dim = cfg.cost_latent_dim, cfg.cost_latent_input_dim*2
         qk_dim, v_dim = query_token_dim, query_token_dim
-        self.input_layer = CrossAttentionLayer(qk_dim, v_dim, query_token_dim, tgt_token_dim, dropout=cfg.dropout)
-
+        #self.input_layer = CrossAttentionLayer(qk_dim, v_dim, query_token_dim, tgt_token_dim, dropout=cfg.dropout)
+        self.input_layer_local = LocallyGroupedAttn(qk_dim, ws=4)
+        self.input_layer_global = CrossGlobalSubSampleAttn(qk_dim, sr_ratio=3)
+        #print(qk_dim)
+        #print(v_dim)
         if cfg.use_mlp:
             self.encoder_layers = nn.ModuleList([MLPMixerLayer(cfg.cost_latent_dim, cfg, dropout=cfg.dropout) for idx in range(self.depth)])
         else:
@@ -284,9 +465,11 @@ class CostPerceiverEncoder(nn.Module):
         x, size = self.patch_embed(cost_maps)   # B*H1*W1, size[0]*size[1], C
         data['H3W3'] = size
         H3, W3 = size
-
-        x = self.input_layer(self.latent_tokens, x)
-
+        #x = self.input_layer_global(self.latent_tokens, x, (10, 10))
+        #print(x.shape)
+        #x = self.input_layer(self.latent_tokens, x)
+        x = self.input_layer_local(x, (10, 10))
+        x = self.input_layer_global(self.latent_tokens, x, (10, 10))
         short_cut = x
 
         for idx, layer in enumerate(self.encoder_layers):
