@@ -311,15 +311,14 @@ def dataset_intrinsics(dataset='tartanair'):
     return focalx, focaly, centerx, centery
 
 from mpl_toolkits.mplot3d import axes3d
-def plot_traj_3d(gtposes, estposes, baselineposes, vis=False, savefigname=None, title=''):
+def plot_traj_3d(gtposes, estposes, vis=False, savefigname=None, title=''):
     fig = plt.figure(figsize=(4,4))
     cm = plt.cm.get_cmap('Spectral')
     ax = fig.add_subplot(111, projection='3d')
 
     ax.plot(gtposes[:,0],gtposes[:,1], gtposes[:,2], linestyle='dashed',c='k')
-    ax.plot(baselineposes[:, 0], baselineposes[:, 1], baselineposes[:, 2],c='#1f77b4')
     ax.plot(estposes[:, 0], estposes[:, 1], estposes[:, 2],c='#ff7f0e')
-    ax.legend(['Ground Truth', 'TartanVO', 'Ours'])
+    ax.legend(['Ground Truth', 'Ours'])
     ax.set_title(title)
     if savefigname is not None:
         plt.savefig(savefigname)
@@ -328,17 +327,16 @@ def plot_traj_3d(gtposes, estposes, baselineposes, vis=False, savefigname=None, 
     plt.close(fig)
 
 
-def plot_traj(gtposes, estposes, baselineposes, vis=False, savefigname=None, title=''):
+def plot_traj(gtposes, estposes, vis=False, savefigname=None, title=''):
     fig = plt.figure(figsize=(4,4))
     cm = plt.cm.get_cmap('Spectral')
 
     plt.subplot(111)
     plt.plot(gtposes[:,0],gtposes[:,1], linestyle='dashed',c='k')
-    plt.plot(baselineposes[:, 0], baselineposes[:, 1],c='#1f77b4')
     plt.plot(estposes[:, 0], estposes[:, 1],c='#ff7f0e')
     plt.xlabel('x (m)')
     plt.ylabel('y (m)')
-    plt.legend(['Ground Truth', 'TartanVO', 'Ours'])
+    plt.legend(['Ground Truth', 'Ours'])
     plt.title(title)
     if savefigname is not None:
         plt.savefig(savefigname)

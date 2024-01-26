@@ -180,7 +180,6 @@ def calculate_epe_and_pck_per_dataset(test_dataloader, network, device, threshol
 def test(flownet, posenet, motionlist, 
                    test_loader, 
                    device,
-                   cfg,
                    save_path,
                    apply_mask=False,
                    sparse=False):
@@ -218,19 +217,7 @@ def test(flownet, posenet, motionlist,
             source_image, target_image = pre_process_data(mini_batch['source_image'],
                                                         mini_batch['target_image'],
                                                         device=device)
-            #import pdb; pdb.set_trace()
-            '''
-            source_image_squeeze = source_image.squeeze(dim=0).permute(1, 2, 0)
-            target_image_squeeze = target_image.squeeze(dim=0).permute(1, 2, 0)
-            source_numpy = source_image_squeeze.cpu().numpy()
-            target_numpy = target_image_squeeze.cpu().numpy()
-            source_data = Image.fromarray(source_numpy.astype('uint8'))
-            target_data = Image.fromarray(target_numpy.astype('uint8'))
-            source_path = os.path.join('/home/main/workspace/jeongwook/Trans_TartanVO_mixvpr_sum_with_VPRdata_new/snapshots/tartanvo_test/results'+'/source_{}.png'.format(i))
-            target_path = os.path.join('/home/main/workspace/jeongwook/Trans_TartanVO_mixvpr_sum_with_VPRdata_new/snapshots/tartanvo_test/results'+'/target_{}.png'.format(i))
-            source_data.save(source_path)
-            target_data.save(target_path)
-            '''
+
             #intrinsic, flow, mask = None, None, None
             intrinsic = mini_batch['intrinsic'].float().to(device)
             #flow = mini_batch['flow'].float().to(device)
@@ -246,64 +233,18 @@ def test(flownet, posenet, motionlist,
             intrinsic[:, 0, :, :] *= 640.0 / float(w_original)
             intrinsic[:, 1, :, :] *= 640.0 / float(h_original)
 
-            '''
-            #TartanAir
-            output_net_256, output_net_original = flownet(source_image, target_image, source_image_256, target_image_256)
-            
-            #pose net
-            flow_scale = 20.0
-            '''
-            #intrinsic = mini_batch['intrinsic'].float().to(device)
-            #flow_output = flownet(source_image, target_image)
+
             
             flow_output = flownet(stage='vo', image1=source_image, image2=target_image) 
-            '''
-            valid = None
-            flowloss, metrics = sequence_loss(flow_output, flow, valid, cfg)
-            print(flowloss)
-            flow_result = flow_output[-1].squeeze(dim=0).permute(1,2,0)
-            flow_numpy = flow_result.cpu().numpy()
-            flow_img = flow_to_image(flow_numpy)
-            flow_data = Image.fromarray(flow_img.astype('uint8'))
-            flow_path = os.path.join('/home/main/workspace/jeongwook/Trans_TartanVO_mixvpr_sum_with_VPRdata_new/snapshots/tartanvo_test/results'+'/flow_{}.png'.format(i))
-            gt_path = os.path.join('/home/main/workspace/jeongwook/Trans_TartanVO_mixvpr_sum_with_VPRdata_new/snapshots/tartanvo_test/results'+'/flow_gt_{}.png'.format(i))
-            #flow_gt_path = '/home/main/storage/gpuserver00_storage/TartanAir/carwelding/carwelding/Hard/P000/flow/000000_000001_flow.npy'
-            
-            flow_gt_data = np.load(flow_gt_path)
-            flow_gt_data = torch.tensor(flow_gt_data)
-            flow_gt_data = flow_gt_data.permute(2,0,1).unsqueeze(0)
-            flow_gt_data = F.interpolate(flow_gt_data, (640, 640),
-                                        mode='bilinear', align_corners=False)
-            flow_gt_data[:, 0, :, :] *= 640.0 / float(w_original)
-            flow_gt_data[:, 1, :, :] *= 640.0 / float(h_original)
-            flow_gt_data = flow_gt_data.squeeze(dim=0).permute(1,2,0)
-            flow_gt_data = flow_gt_data.numpy()
-            #import pdb; pdb.set_trace()
-            flow_img_gt = flow_to_image(flow_gt_data)
-            flow_gt_data_image = Image.fromarray(flow_img_gt.astype('uint8'))
-            
-            flow_gt_data = flow.squeeze(dim=0).permute(1,2,0)
-            flow_gt_data = flow_gt_data.cpu().numpy()
-            flow_img_gt = flow_to_image(flow_gt_data)
-            flow_gt_data_image = Image.fromarray(flow_img_gt.astype('uint8'))
-            flow_data.save(flow_path)
-            flow_gt_data_image.save(gt_path)
-            '''
+ 
             #import pdb; pdb.set_trace()
             flow_scale = 20.0
             flow_input = flow_output[-1].clone()/flow_scale
-            #flow_input = flow_input.clone()/flow_scale            
-            #pose_output = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))  
             pose_output = posenet(stage='vo', x=torch.cat((flow_input, intrinsic),1))
-            #pose_output = posenet(stage='vo', x=torch.cat((flow_input, intrinsic), 1))
-            #flow_output, pose_output = vonet([target_image, source_image, intrinsic])
-            #flow_output, pose_output = vonet([source_image, target_image, intrinsic])
+
             
             #with flow_output 
-            '''
-            flow_input = output_net_original[1].clone()/flow_scale #20은 tartanvo값임
-            motion = posenet(torch.cat((flow_input, mini_batch['intrinsic'].to(device)),1))
-            '''
+
             motionnp = pose_output.cpu().numpy()
             pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32) 
             motionnp = motionnp * pose_std
