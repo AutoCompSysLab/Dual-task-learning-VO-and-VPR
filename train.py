@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 from torch.nn.functional import cosine_similarity
 import torch.optim as optim
-from workflow import WorkFlow, TorchFlow
 from arguments import get_args
 import numpy as np
 from torch.utils.data import DataLoader
@@ -93,9 +92,9 @@ if __name__ == '__main__':
                         default=4e-4, help='momentum constant')
     parser.add_argument('--start_epoch', type=int, default=-1,
                         help='start epoch')
-    parser.add_argument('--n_epoch', type=int, default=25,
+    parser.add_argument('--n_epoch', type=int, default=8,
                         help='number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=100,
+    parser.add_argument('--batch-size', type=int, default=4,
                         help='training batch size')
     parser.add_argument('--n_threads', type=int, default=2,
                         help='number of parallel threads for dataloaders')
@@ -114,7 +113,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume-e2e',  action='store_true',  default=False)
     parser.add_argument('--worker-num', type=int, default=16,
                         help='data loader worker number (default: 1)')
-    parser.add_argument('--lr', type=float, default=1e-4,
+    parser.add_argument('--lr', type=float, default=1e-5,
                     help='learning rate (default: 3e-4)')
     args = parser.parse_args()
     
@@ -128,7 +127,7 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     IMAGENET_MEAN_STD = {'mean': [0.485, 0.456, 0.406], 
                         'std': [0.229, 0.224, 0.225]}
 
@@ -229,8 +228,8 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(cfg.restore_ckpt), strict=True)
     
     optimizer = \
-        optim.Adam(filter(lambda p: p.requires_grad, chain(flownet.parameters(), posenet.parameters()),
-                   lr=args.lr,))
+        optim.Adam(filter(lambda p: p.requires_grad, chain(flownet.parameters(), posenet.parameters())),
+                   lr=args.lr,)
                    #weight_decay=args.weight_decay)
     scheduler = lr_scheduler.MultiStepLR(optimizer,
                                          milestones=[5,8],#e2e 25
@@ -280,7 +279,9 @@ if __name__ == '__main__':
     test_writer = SummaryWriter(os.path.join(save_path, 'test'))
 
     flownet = nn.DataParallel(flownet)
+    flownet = flownet.to(device)
     posenet = nn.DataParallel(posenet)
+    posenet = posenet.to(device)
 
     train_started = time.time()
     datastr = 'tartanair'
@@ -342,7 +343,7 @@ if __name__ == '__main__':
         best_train = min(train_loss_pose, best_train)
 
         save_checkpoint({'epoch': epoch + 1,
-                         'state_dict': posenet.module.state_dict(),
+                         'state_dict': flownet.module.state_dict(),
                          'optimizer': optimizer.state_dict(),
                          'scheduler': scheduler.state_dict(),
                          'best_loss': best_train},

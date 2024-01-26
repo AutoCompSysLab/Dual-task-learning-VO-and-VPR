@@ -277,9 +277,9 @@ def train_epoch(flownet,
                                                       device=device)
         #intrinsic, flow, mask = None, None, None
         
-        intrinsic = mini_batch['intrinsic'].float().to(device)
+        intrinsic = mini_batch[0]['intrinsic'].float().to(device)
         
-        flow = mini_batch['flow'].float().to(device)
+        flow = mini_batch[0]['flow'].float().to(device)
         bs, _, h_original, w_original = flow.shape
         flow = F.interpolate(flow, (640, 640),
                                     mode='bilinear', align_corners=False)
@@ -318,7 +318,7 @@ def train_epoch(flownet,
         
         #flow_scale = 140.0
 
-        motion_gt = mini_batch['motion'].float()
+        motion_gt = mini_batch[0]['motion'].float()
     
         pose_std = np.array([ 0.13,  0.13,  0.13, 0.013, 0.013,  0.013], dtype=np.float32)
         motion_gt = motion_gt / pose_std
