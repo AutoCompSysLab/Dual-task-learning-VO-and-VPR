@@ -435,8 +435,6 @@ class CostPerceiverEncoder(nn.Module):
         #self.input_layer = CrossAttentionLayer(qk_dim, v_dim, query_token_dim, tgt_token_dim, dropout=cfg.dropout)
         self.input_layer_local = LocallyGroupedAttn(qk_dim, ws=4)
         self.input_layer_global = CrossGlobalSubSampleAttn(qk_dim, sr_ratio=3)
-        #print(qk_dim)
-        #print(v_dim)
         if cfg.use_mlp:
             self.encoder_layers = nn.ModuleList([MLPMixerLayer(cfg.cost_latent_dim, cfg, dropout=cfg.dropout) for idx in range(self.depth)])
         else:
@@ -465,8 +463,6 @@ class CostPerceiverEncoder(nn.Module):
         x, size = self.patch_embed(cost_maps)   # B*H1*W1, size[0]*size[1], C
         data['H3W3'] = size
         H3, W3 = size
-        #x = self.input_layer_global(self.latent_tokens, x, (10, 10))
-        #print(x.shape)
         #x = self.input_layer(self.latent_tokens, x)
         x = self.input_layer_local(x, (10, 10))
         x = self.input_layer_global(self.latent_tokens, x, (10, 10))

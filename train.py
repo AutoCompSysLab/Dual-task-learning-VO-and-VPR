@@ -180,28 +180,15 @@ if __name__ == '__main__':
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN_STD['mean'], std=IMAGENET_MEAN_STD['std'])])
     # training and validation dataset
-    '''
-    train_dataset = Changeair_Dataset(root=args.training_data_dir,
-                                    source_image_transform=source_img_transforms,
-                                    target_image_transform=target_img_transforms,
-                                    flow_transform=flow_transform,
-                                    co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
-                                    focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
 
-    val_dataset = Changeair_cvpr_Dataset(root=args.test_data_dir,
-                                    source_image_transform=source_img_transforms,
-                                    target_image_transform=target_img_transforms,
-                                    flow_transform=flow_transform,
-                                    co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
-                                    focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
-    '''
+    
     train_dataset, val_dataset = Tartanair_TrainigDataset(root=args.training_data_dir,
                                     source_image_transform=source_img_transforms,
                                     target_image_transform=target_img_transforms,
                                     flow_transform=flow_transform,
                                     co_transform=None, valid_transform = valid_transform, train_transform = train_transform,
                                     focalx = 320.0, focaly = 320.0, centerx = 320.0, centery = 240.0)
-    '''
+    
     VPR_train_dataset = GSVCitiesDataset(
         cities=TRAIN_CITIES,
         img_per_place=args.img_per_place,
@@ -213,7 +200,7 @@ if __name__ == '__main__':
                         input_transform=VPR_valid_transform)
     
     #import pdb; pdb.set_trace()
-    '''
+    
     #Dataloader
 
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, 
@@ -221,57 +208,34 @@ if __name__ == '__main__':
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, 
                                     shuffle=False, drop_last=False, pin_memory=True, num_workers=args.worker_num//4)
 
-    '''
+    
     VPR_train_dataloader = DataLoader(dataset=VPR_train_dataset, batch_size=4, shuffle=True, drop_last=False, pin_memory=True, num_workers=args.worker_num//2)
     
     VPR_valid_dataloader = DataLoader(dataset=VPR_val_dataset, batch_size=4, shuffle=False, drop_last=False, pin_memory=True, num_workers=args.worker_num//4)
-    
+    '''
     self.vonet = PretrainedVONet(intrinsic=self.args.intrinsic_layer, 
                         flowNormFactor=1.0, down_scale=args.downscale_flow, 
                         fixflow=args.fix_flow, pretrain=args.pretrain_model_name,
                         use_gru=args.use_gru)
     '''
     # models
-    #vonet = TartanVO()
-    #attention_net = GLAM() # 파라미터 입력해야됨
-    #flownet = build_flowformer(cfg)
-    #print(colored('==> ', 'blue') + 'Flowformer created.')
-    #import pdb; pdb.set_trace()
-
-    #target_layer_parameters = model.memory_encoder.cost_perceiver_encoder.input_layer_local.parameters()
-    #total_parameters = sum(p.numel() for p in target_layer_parameters)
-
-    #print("Total Parameters in target layer:", total_parameters)
+    flownet = build_flowformer(cfg)
+    print(colored('==> ', 'blue') + 'Flowformer created.')
     posenet = VPRPosenet(in_channels=256, in_h=40, in_w=40, out_channels=256, mix_depth=4, mlp_ratio=1, out_rows=9)
     print(colored('==> ', 'blue') + 'Posenet created.')    
-    #vpr_net = get_aggregator(agg_arch, agg_config)
-    #scd_net = TANet(self.args.encoder_arch, self.args.local_kernel_size, self.args.attn_stride,
-                           #self.args.attn_padding, self.args.attn_groups, self.args.drtam, self.args.refinement)
-    #loguru_logger.info("Parameter Count: %d" % count_parameters(model))
     
     if cfg.restore_ckpt is not None:
         print("[Loading ckpt from {}]".format(cfg.restore_ckpt))
         model.load_state_dict(torch.load(cfg.restore_ckpt), strict=True)
     
     optimizer = \
-        optim.Adam(filter(lambda p: p.requires_grad, posenet.parameters()),
-                   lr=args.lr,)
+        optim.Adam(filter(lambda p: p.requires_grad, chain(flownet.parameters(), posenet.parameters()),
+                   lr=args.lr,))
                    #weight_decay=args.weight_decay)
     scheduler = lr_scheduler.MultiStepLR(optimizer,
-                                         #milestones=[65, 75, 95],
-                                         milestones=[12,21],#e2e 25
+                                         milestones=[5,8],#e2e 25
                                          gamma=0.2)#poselr
-    '''
-    optimizer = optim.AdamW(chain(flownet.parameters(),posenet.parameters()), lr=cfg.trainer.canonical_lr, weight_decay=cfg.trainer.adamw_decay, eps=cfg.trainer.epsilon)
-    scheduler = lr_scheduler.OneCycleLR(optimizer, cfg.trainer.canonical_lr, epochs=25, steps_per_epoch=76567,
-                pct_start=0.05, cycle_momentum=False, anneal_strategy=cfg.trainer.anneal_strategy)
 
-    
-    # load the whole model
-    if args.pretrained_model is not None:
-        modelname = args.pretrained_model
-        vonet = load_model(vonet, modelname)
-    '''
     #import pdb; pdb.set_trace()
     if args.pretrained_flownet:
         checkpoint = torch.load(args.pretrained_flownet)
@@ -315,14 +279,9 @@ if __name__ == '__main__':
     train_writer = SummaryWriter(os.path.join(save_path, 'train'))
     test_writer = SummaryWriter(os.path.join(save_path, 'test'))
 
-    #attention_net = nn.DataParallel(attention_net)
-    #flownet = nn.DataParallel(flownet)
+    flownet = nn.DataParallel(flownet)
     posenet = nn.DataParallel(posenet)
-    #vpr_net = nn.DataParallel(vpr_net)
-    #scd_net = nn.DataParallel(TANet)
-    #vonet = nn.DataParallel(vonet)
-    #flownet = flownet.to(device)
-    posenet = posenet.to(device)
+
     train_started = time.time()
     datastr = 'tartanair'
     for epoch in range(start_epoch, args.n_epoch):
@@ -332,10 +291,10 @@ if __name__ == '__main__':
         if not osp.isdir(results_dir):
             os.mkdir(results_dir)  
         
-        train_loss_pose, train_last_batch_ate = train_epoch(posenet,
+        train_loss_flow, train_loss_pose, train_loss_vpr, train_last_batch_ate = train_epoch(flownet, posenet,
                                  optimizer,
                                  train_dataloader,
-                                 #VPR_train_dataloader,
+                                 VPR_train_dataloader,
                                  device,
                                  epoch,
                                  train_writer,
@@ -343,14 +302,14 @@ if __name__ == '__main__':
                                  div_flow=args.div_flow,
                                  save_path=os.path.join(save_path, 'train'),
                                  apply_mask=False, results_dir=results_dir)#수정
-        #train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
+        train_writer.add_scalar('train loss flow', train_loss_flow, epoch)
         train_writer.add_scalar('train loss pose', train_loss_pose, epoch)
-        #train_writer.add_scalar('train loss vpr', train_loss_vpr, epoch)
-        #train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
+        train_writer.add_scalar('train loss vpr', train_loss_vpr, epoch)
+        train_writer.add_scalar('train last batch ate', train_last_batch_ate, epoch)
         train_writer.add_scalar('learning_rate', scheduler.get_lr()[0], epoch)
-        #print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
+        print(colored('==> ', 'green') + 'Train average flow loss:', train_loss_flow)  
         print(colored('==> ', 'green') + 'Train average pose loss:', train_loss_pose)
-        #print(colored('==> ', 'green') + 'Train average vpr loss:', train_loss_vpr)
+        print(colored('==> ', 'green') + 'Train average vpr loss:', train_loss_vpr)
         print(colored('==> ', 'green') + 'Train last batch ate:', train_last_batch_ate)  
         '''       
         # Validation
@@ -387,65 +346,10 @@ if __name__ == '__main__':
                          'optimizer': optimizer.state_dict(),
                          'scheduler': scheduler.state_dict(),
                          'best_loss': best_train},
+                         {'state_dict': posenet.module.state_dict(),
+                         'optimizer': optimizer.state_dict(),
+                         'scheduler': scheduler.state_dict(),
+                         'best_loss': best_train},
                         is_best, save_path, 'epoch_{}.pth'.format(epoch + 1))
 
     print(args.seed, 'Training took:', time.time()-train_started, 'seconds')  
-
-        
-
-    '''
-    # load flow
-    if args.load_flow_model:
-        modelname1 = self.args.working_dir + '/models/' + args.flow_model
-        if args.flow_model.endswith('tar'): # load pwc net
-            data = torch.load(modelname1)
-            self.vonet.flowNet.load_state_dict(data)
-            print('load pwc network...')
-        else:
-            self.load_model(self.vonet.flowNet, modelname1)
-
-    mean = None 
-    std = None
-
-    self.pose_norm = [0.13,0.13,0.13,0.013,0.013,0.013] # hard code, use when save motionfile when testing
-
-    # load pose
-    if args.load_pose_model:
-        modelname2 = self.args.working_dir + '/models/' + args.pose_model
-        self.load_model(self.vonet.flowPoseNet, modelname2)
-
-    # load the whole model
-    if self.args.load_model:
-        modelname = self.args.working_dir + '/models/' + self.args.model_name
-        self.load_model(self.vonet, modelname)
-        print('load tartanvo network...')
-
-    self.LrDecrease = [int(self.args.train_step/2), 
-                        int(self.args.train_step*3/4), 
-                        int(self.args.train_step*7/8)]
-    self.lr = self.args.lr
-    self.lr_flow = self.args.lr_flow
-
-
-    self.pretrain_lr = self.args.pretrain_lr_scale
-    self.voflowOptimizer  = optim.Adam([{'params':self.vonet.flowPoseNet.flowPoseNet.parameters(), 'lr': self.lr}, 
-                                        {'params':self.vonet.flowPoseNet.preEncoder.parameters(), 'lr': self.lr*self.pretrain_lr}], lr = self.lr)
-
-    self.criterion = nn.L1Loss()
-
-    if self.args.multi_gpu>1:
-        self.vonet = nn.DataParallel(self.vonet)
-
-    self.vonet.cuda()
-    
-    # Instantiate an object for MyWF.
-    trainVOFlow = TrainVONet(args.working_dir, args, prefix = args.exp_prefix, plotterType = plottertype) # flownet + posenet 불러오기
-    trainVOFlow.initialize() # parameter 초기화...?
-        trainVOFlow.train() #line 223
-        if (trainVOFlow.count >= args.train_step):
-            break
-    trainVOFlow.finalize()
-
-    print("Done.")
-    '''
-

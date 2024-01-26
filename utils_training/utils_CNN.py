@@ -5,9 +5,9 @@ import torch
 import shutil
 
 
-def save_checkpoint(posenet_state, is_best, save_path, filename):
-    file_prefixes = ['posenet']
-    states = [posenet_state]
+def save_checkpoint(flownet_state, posenet_state, is_best, save_path, filename):
+    file_prefixes = ['flownet', 'posenet']
+    states = [flownet_state, posenet_state]
     #torch.save(state, os.path.join(save_path,filename))
     for (prefix, state) in zip(file_prefixes, states):
         torch.save(state, save_path+'/{}_{}'.format(prefix,filename))
